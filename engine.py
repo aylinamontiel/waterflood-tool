@@ -58,8 +58,9 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     d = pd.DataFrame({"ptype": ptype_col, "raw_status": raw_status, "tvd": tvd_col})
     d["inj"] = d["ptype"].str.contains("INJ")
 
+    # SOLUCIÓN DEL ERROR: Envolvemos 's' en str() para forzarlo a texto y evitar el fallo del float.
     def _map_status(s):
-        s_cl = s.replace("&", "").replace("/", "").replace(" ", "")
+        s_cl = str(s).upper().replace("&", "").replace("/", "").replace(" ", "")
         if "PA" in s_cl or "PLUG" in s_cl or ("ABANDON" in s_cl and "TEMP" not in s_cl): return "PA"
         if "TA" in s_cl or "INACT" in s_cl or "SI" in s_cl or "SHUT" in s_cl or "TEMP" in s_cl: return "INACTIVE"
         if "ACT" in s_cl or "PROD" in s_cl: return "ACTIVE"

@@ -6,14 +6,12 @@ import base64
 import os
 import engine 
 
-# 1. Page Configuration
 st.set_page_config(
     page_title="WaterFlood Tool", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Función para cargar el logo local
 def get_base64_image(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file:
@@ -23,52 +21,19 @@ def get_base64_image(image_path):
 logo_base64 = get_base64_image("logo.png")
 logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="width: 250px; margin-bottom: 30px;">' if logo_base64 else ''
 
-# 2. CSS Injection
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Montserrat', sans-serif;
-    }
-    
-    /* Hide Streamlit default elements */
+    html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
     [data-testid="stStatusWidget"] {visibility: hidden;}
     .stDeployButton {display: none;}
-    
-    /* Custom Loading Animation (Squares) */
-    .loader-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 40vh;
-    }
-    .cube-grid {
-        width: 50px;
-        height: 50px;
-        margin: 20px auto;
-    }
-    .cube-grid .cube {
-        width: 33%;
-        height: 33%;
-        background-color: #D4AF37;
-        float: left;
-        animation: cubeGridScaleDelay 1.3s infinite ease-in-out;
-    }
-    .cube-grid .cube1 { animation-delay: 0.2s; }
-    .cube-grid .cube2 { animation-delay: 0.3s; }
-    .cube-grid .cube3 { animation-delay: 0.4s; }
-    .cube-grid .cube4 { animation-delay: 0.1s; }
-    .cube-grid .cube5 { animation-delay: 0.2s; }
-    .cube-grid .cube6 { animation-delay: 0.3s; }
-    .cube-grid .cube7 { animation-delay: 0.0s; }
-    .cube-grid .cube8 { animation-delay: 0.1s; }
-    .cube-grid .cube9 { animation-delay: 0.2s; }
-    @keyframes cubeGridScaleDelay {
-        0%, 70%, 100% { transform: scale3D(1, 1, 1); }
-        35% { transform: scale3D(0, 0, 1); }
-    }
+    .loader-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 40vh; }
+    .cube-grid { width: 50px; height: 50px; margin: 20px auto; }
+    .cube-grid .cube { width: 33%; height: 33%; background-color: #D4AF37; float: left; animation: cubeGridScaleDelay 1.3s infinite ease-in-out; }
+    .cube-grid .cube1 { animation-delay: 0.2s; } .cube-grid .cube2 { animation-delay: 0.3s; } .cube-grid .cube3 { animation-delay: 0.4s; }
+    .cube-grid .cube4 { animation-delay: 0.1s; } .cube-grid .cube5 { animation-delay: 0.2s; } .cube-grid .cube6 { animation-delay: 0.3s; }
+    .cube-grid .cube7 { animation-delay: 0.0s; } .cube-grid .cube8 { animation-delay: 0.1s; } .cube-grid .cube9 { animation-delay: 0.2s; }
+    @keyframes cubeGridScaleDelay { 0%, 70%, 100% { transform: scale3D(1, 1, 1); } 35% { transform: scale3D(0, 0, 1); } }
     </style>
 """, unsafe_allow_html=True)
 
@@ -78,39 +43,27 @@ if 'run_eval' not in st.session_state:
 st.title("WaterFlood Tool")
 st.markdown("---")
 
-# ==========================================
-# SIDEBAR (USER INPUTS)
-# ==========================================
 with st.sidebar:
-    # Mostrar el logo en la barra lateral permanentemente
     if os.path.exists("logo.png"):
         st.image("logo.png", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
-    # 1. LYCF
     st.header("1. Base Financials")
-    # ELIMINAMOS min_value=0.0 PARA QUE ACEPTE NÚMEROS NEGATIVOS
     lycf = st.number_input("Base LYCF ($/year)", value=0.0, step=1000.0, key="input_lycf")
-    
     st.markdown("---")
     
-    # 2. Interest Type
     st.header("2. Interest & Liabilities")
     interest_type = st.selectbox("Select Interest Type", ["NRI", "ORRI", "WI"], key="input_interest")
     
     if interest_type == "WI":
         wi_pct = st.number_input("Average Working Interest (WI) Decimal (e.g. 0.0005)", min_value=0.0, max_value=1.0, value=0.0, format="%.6f", key="input_wi")
-        
         st.markdown("**P&A Liability Calculation**")
         operator_distress = st.checkbox("Operator in Negative Cash Flow", help="Calculate P&A for ALL wells (Active + Inactive) per underwriting rules.")
-        
         n_inactive_override = st.number_input("Inactive Wells (Type number OR leave 0 to auto-detect)", min_value=0, value=0, step=1, key="input_inactive")
         pa_cost_ft = st.number_input("P&A Cost ($/ft)", min_value=0.0, value=7.0, key="input_pa_cost")
-        
-        pa_mode = st.radio("P&A Cost Distribution", ["Lump Sum", "Monthly Spread"], key="input_pa_mode")
+        pa_mode = "Lump Sum"
         pa_spread_months = 1
-        if pa_mode == "Monthly Spread":
-            pa_spread_months = st.number_input("Spread over (months)", min_value=1, value=12, key="input_spread")
+        st.caption("Note: P&A Liability is deducted entirely in Month 1 (Lump Sum).")
     else:
         wi_pct, pa_cost_ft, n_inactive_override, pa_spread_months = 0.0, 0.0, 0, 1
         pa_mode = "Lump Sum"
@@ -118,8 +71,6 @@ with st.sidebar:
         st.info("P&A and OPEX costs are disabled for this interest type.")
 
     st.markdown("---")
-    
-    # 3. Decline Rates (CONDITIONAL)
     if interest_type == "WI" and operator_distress:
         st.info("Decline rates are not required for Negative CF scenarios.")
         dec_1yr_input = 0.0
@@ -141,14 +92,9 @@ with st.sidebar:
         else:
             assigned_mult = 3.0
             risk_class = "Low Decline"
-            
         st.info(f"Assigned Multiple: {assigned_mult}x\n\nRisk Class: {risk_class}")
 
-# ==========================================
-# MAIN AREA (DATA UPLOAD)
-# ==========================================
 st.subheader("Data Upload")
-
 if interest_type == "WI" and operator_distress:
     st.info("Negative CF Mode Active: Only the Wells Table is required to calculate the total P&A liability.")
     wells_file = st.file_uploader("Wells Table", type=["csv", "xlsx"], key="file_wells")
@@ -168,13 +114,9 @@ else:
         st.caption("Export WG table from Drilling Info")
 
 st.markdown("---")
-
 if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
     st.session_state.run_eval = True
 
-# ==========================================
-# ENGINE EXECUTION
-# ==========================================
 if st.session_state.run_eval:
     if lycf == 0.0 or (interest_type == "WI" and wi_pct == 0.0):
         st.warning("Warning: LYCF and Average WI Decimal cannot be 0. Please check the sidebar inputs.")
@@ -183,7 +125,6 @@ if st.session_state.run_eval:
     elif not (interest_type == "WI" and operator_distress) and (not prod_file or not price_file or (interest_type == "WI" and not wells_file)):
         st.warning("Please upload the necessary files (Historical Production, Price, and Wells Table) to continue.")
     else:
-        # CUSTOM LOADING ANIMATION WITH LOCAL LOGO
         loader_placeholder = st.empty()
         with loader_placeholder.container():
             st.markdown(f"""
@@ -202,10 +143,8 @@ if st.session_state.run_eval:
         
         try:
             if interest_type == "WI" and operator_distress:
-                if wells_file.name.lower().endswith('.csv'):
-                    df_wells = pd.read_csv(wells_file)
-                else:
-                    df_wells = pd.read_excel(wells_file, engine='openpyxl')
+                if wells_file.name.lower().endswith('.csv'): df_wells = pd.read_csv(wells_file)
+                else: df_wells = pd.read_excel(wells_file, engine='openpyxl')
                     
                 wells_summary = engine.summarize_wells(df_wells)
                 total_wells = wells_summary.get("total_wells", 0)
@@ -218,55 +157,39 @@ if st.session_state.run_eval:
                 )
                 
                 loader_placeholder.empty()
-                
                 st.success("Evaluation completed successfully!")
                 st.subheader("Distress Scenario Results")
                 st.error(f"Negative CF Rule Applied: Total P&A liability calculated for ALL {total_wells} wells (Active + Inactive).")
                 
                 col_d1, col_d2 = st.columns(2)
-                
-                # Formato inteligente para que el negativo salga antes del dólar (-$105 en lugar de $-105)
                 lycf_str = f"-${abs(lycf):,.0f}" if lycf < 0 else f"${lycf:,.0f}"
                 col_d1.metric("Baseline LYCF", lycf_str)
                 col_d2.metric("Total P&A Liability Deduction", f"-${abandon_data['total']:,.0f}")
                 
             else:
-                if prod_file.name.lower().endswith('.csv'):
-                    df_prod = pd.read_csv(prod_file)
-                else:
-                    df_prod = pd.read_excel(prod_file, engine='openpyxl')
+                if prod_file.name.lower().endswith('.csv'): df_prod = pd.read_csv(prod_file)
+                else: df_prod = pd.read_excel(prod_file, engine='openpyxl')
                 df_prod_clean = engine.clean_production(df_prod)
                 
-                if price_file.name.lower().endswith('.csv'):
-                    df_prices_raw = pd.read_csv(price_file)
-                else:
-                    df_prices_raw = pd.read_excel(price_file, sheet_name=0, engine='openpyxl')
+                if price_file.name.lower().endswith('.csv'): df_prices_raw = pd.read_csv(price_file)
+                else: df_prices_raw = pd.read_excel(price_file, sheet_name=0, engine='openpyxl')
                 df_prices = engine.clean_prices(df_prices_raw)
                 
                 base_ratios = engine.base_prices(df_prices, df_prod_clean, months=12)
-                
                 fit_1y = engine.fit_arps(engine.rate_window(df_prod_clean, 12)["qo"].values, kind="auto")
                 fit_5y = engine.fit_arps(engine.rate_window(df_prod_clean, 60)["qo"].values, kind="auto")
                 
-                tvd_avg = 7500.0
-                n_inactive_auto = 0
-                tvd_sum_auto = 0.0
-                wells_summary = None
-                audit_res = None
+                tvd_avg, n_inactive_auto, tvd_sum_auto = 7500.0, 0, 0.0
+                wells_summary, audit_res = None, None
                 
                 if wells_file:
-                    if wells_file.name.lower().endswith('.csv'):
-                        df_wells = pd.read_csv(wells_file)
-                    else:
-                        df_wells = pd.read_excel(wells_file, engine='openpyxl')
-                        
+                    if wells_file.name.lower().endswith('.csv'): df_wells = pd.read_csv(wells_file)
+                    else: df_wells = pd.read_excel(wells_file, engine='openpyxl')
                     wells_summary = engine.summarize_wells(df_wells)
                     n_inactive_auto = wells_summary.get("inactive_ta", {}).get("n", 0)
                     tvd_avg = wells_summary.get("inactive_ta", {}).get("tvd_avg", 7500.0)
                     tvd_sum_auto = wells_summary.get("inactive_ta", {}).get("tvd_sum", 0.0)
-                    
                     if pd.isna(tvd_avg): tvd_avg = 7500.0
-                        
                     audit_res = engine.audit_waterflood(df_prod_clean, wells_summary)
                 
                 final_inactive_count = n_inactive_override if n_inactive_override > 0 else n_inactive_auto
@@ -278,53 +201,43 @@ if st.session_state.run_eval:
                     months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=exact_sum
                 )
                 
-                forecast = engine.build_forecast(
-                    months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices, 
-                    base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), 
-                    last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"]
-                )
+                # FORECASTS (Strip Pricing)
+                forecast_5yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
+                forecast_1yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_1yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 
-                val_dcf = engine.evaluate_cashflow(forecast["Net CF ($)"], forecast["Date"], fixed_offer=None)
-                val_dcf_25 = engine.evaluate_cashflow(forecast["Net CF ($)"], forecast["Date"], fixed_offer=val_dcf["PV 25.0% ($)"])
+                val_dcf = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=None)
+                val_dcf_25 = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=val_dcf["PV 25.0% ($)"])
                 
                 matrix_gross_offer = assigned_mult * lycf
                 matrix_net_offer = matrix_gross_offer - abandon_data['total']
+                val_wf = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=matrix_net_offer)
                 
-                val_wf = engine.evaluate_cashflow(forecast["Net CF ($)"], forecast["Date"], fixed_offer=matrix_net_offer)
-                
+                # FORECASTS (Flat Pricing $50/$3)
                 df_prices_flat = df_prices.copy()
                 df_prices_flat["WTI"] = 50.0
                 df_prices_flat["NYMEX"] = 3.0
                 
-                forecast_flat = engine.build_forecast(
-                    months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices_flat, 
-                    base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), 
-                    last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"]
-                )
-                val_flat = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
+                forecast_flat = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
+                
+                # Valuations under Flat Pricing
+                val_flat_dcf = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=None)
+                val_flat_dcf_25 = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=val_flat_dcf["PV 25.0% ($)"])
+                val_flat_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
                 
                 loader_placeholder.empty()
-                
                 st.success("Evaluation completed successfully!")
                 
                 if wells_summary and audit_res:
                     st.subheader("Phase 1: WF & CO2 Technical Identification")
                     col_a1, col_a2 = st.columns(2)
-                    
                     tvd_pass = audit_res["tvd_pass"]
-                    col_a1.metric("TVD Consistency (Producers vs Injectors)", 
-                                  audit_res["tvd_match"], 
-                                  "Pass: Same Zone" if tvd_pass else "Fail: Different Zones",
-                                  delta_color="normal" if tvd_pass else "inverse")
-                                  
+                    col_a1.metric("TVD Consistency (Producers vs Injectors)", audit_res["tvd_match"], "Pass: Same Zone" if tvd_pass else "Fail: Different Zones", delta_color="normal" if tvd_pass else "inverse")
                     w_pass = audit_res["water_pass"]
-                    col_a2.metric("Waterflood Signature (Water vs Oil)", 
-                                  audit_res["water_signature"], 
-                                  "Pass: Active Sweep" if w_pass else "Fail/Unverified",
-                                  delta_color="normal" if w_pass else "inverse")
+                    col_a2.metric("Waterflood Signature (Water vs Oil)", audit_res["water_signature"], "Pass: Active Sweep" if w_pass else "Fail/Unverified", delta_color="normal" if w_pass else "inverse")
                     st.markdown("---")
                 
                 st.subheader("Estimated Offers & Returns (Strip Pricing)")
+                st.caption("Base valuations using futures market strip prices and the 5-Year Decline rate.")
                 col_o1, col_o2, col_o3 = st.columns(3)
                 
                 with col_o1:
@@ -333,97 +246,86 @@ if st.session_state.run_eval:
                         gross_str = f"-${abs(matrix_gross_offer):,.0f}" if matrix_gross_offer < 0 else f"${matrix_gross_offer:,.0f}"
                         st.write(f"Gross Offer ({assigned_mult}x): **{gross_str}**")
                         st.write(f"P&A Deduction: **-${abandon_data['total']:,.0f}**")
-                    
                     net_str = f"-${abs(matrix_net_offer):,.0f}" if matrix_net_offer < 0 else f"${matrix_net_offer:,.0f}"
                     st.metric("Final Net Matrix Offer", net_str)
                     irr_wf = val_wf['IRR (%)']
-                    irr_color = "normal" if np.isnan(irr_wf) else ("inverse" if irr_wf < 15 else "normal")
-                    st.metric("IRR (%)", f"{irr_wf:.2f}%" if not np.isnan(irr_wf) else "N/A", delta="Hurdle Rate 15%", delta_color=irr_color)
-                    st.metric("Annual CF Multiple", f"{val_wf['Annual CF Multiple (x)']:.2f}x")
+                    st.metric("IRR (%)", f"{irr_wf:.2f}%" if not np.isnan(irr_wf) else "N/A", delta="Hurdle Rate 15%", delta_color="normal" if np.isnan(irr_wf) else ("inverse" if irr_wf < 15 else "normal"))
                     
                 with col_o2:
                     st.markdown("**Valuation 2: Target 25% IRR**")
                     val_dcf_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf_str)
                     st.metric("IRR (%)", f"{val_dcf_25['IRR (%)']:.2f}%", "Target 25% Met")
-                    st.metric("Annual CF Multiple", f"{val_dcf_25['Annual CF Multiple (x)']:.2f}x")
                     
                 with col_o3:
                     st.markdown("**Valuation 3: Standard DCF (PV 17.5%)**")
                     val_dcf17_str = f"-${abs(val_dcf['Estimated Offer ($)']):,.0f}" if val_dcf['Estimated Offer ($)'] < 0 else f"${val_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf17_str)
                     st.metric("IRR (%)", f"{val_dcf['IRR (%)']:.2f}%", "Hurdle 17.5% Met")
-                    st.metric("Annual CF Multiple", f"{val_dcf['Annual CF Multiple (x)']:.2f}x")
 
                 st.markdown("---")
                 
-                st.subheader("Stress Test: Matrix Offer at Flat $50 Oil / $3 Gas")
-                st.caption(f"Evaluates how the Net Matrix Offer of **{net_str}** performs if commodity prices collapse and stay flat forever.")
-                
+                st.subheader("Stress Test Valuations ($50 WTI / $3 NYMEX)")
+                st.caption("Calculates the exact offer values required if commodity prices collapse to flat $50/$3 (using 5-Year Decline).")
                 c_st1, c_st2, c_st3 = st.columns(3)
-                flat_offer_str = f"-${abs(val_flat['Estimated Offer ($)']):,.0f}" if val_flat['Estimated Offer ($)'] < 0 else f"${val_flat['Estimated Offer ($)']:,.0f}"
-                c_st1.metric("Flat Assumed Offer", flat_offer_str)
                 
-                irr_flat = val_flat['IRR (%)']
-                irr_flat_color = "normal" if np.isnan(irr_flat) else ("inverse" if irr_flat < 15 else "normal")
-                c_st2.metric("Stressed IRR (%)", f"{irr_flat:.2f}%" if not np.isnan(irr_flat) else "N/A", delta="Compared to 15% Hurdle", delta_color=irr_flat_color)
-                c_st3.metric("Stressed CF Multiple", f"{val_flat['Annual CF Multiple (x)']:.2f}x")
+                with c_st1:
+                    st.markdown("**Matrix Offer (Stressed)**")
+                    st.metric("Matrix Assumed Offer", net_str)
+                    irr_flat = val_flat_matrix['IRR (%)']
+                    st.metric("Stressed IRR (%)", f"{irr_flat:.2f}%" if not np.isnan(irr_flat) else "N/A", delta="Compared to 15% Hurdle", delta_color="normal" if np.isnan(irr_flat) else ("inverse" if irr_flat < 15 else "normal"))
                 
+                with c_st2:
+                    st.markdown("**Target 25% IRR (Flat Prices)**")
+                    flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
+                    st.metric("Required Offer for 25%", flat_25_str)
+                    st.metric("IRR (%)", f"{val_flat_dcf_25['IRR (%)']:.2f}%")
+                    
+                with c_st3:
+                    st.markdown("**Standard DCF 17.5% (Flat Prices)**")
+                    flat_17_str = f"-${abs(val_flat_dcf['Estimated Offer ($)']):,.0f}" if val_flat_dcf['Estimated Offer ($)'] < 0 else f"${val_flat_dcf['Estimated Offer ($)']:,.0f}"
+                    st.metric("Required Offer for 17.5%", flat_17_str)
+                    st.metric("IRR (%)", f"{val_flat_dcf['IRR (%)']:.2f}%")
+
                 if interest_type == "WI":
                     source_txt = "manually entered" if n_inactive_override > 0 else "found in the uploaded file"
-                    st.info(f"WI Liability Note: The calculations above include an exact estimated P&A liability of **${abandon_data['total']:,.0f}** based on the **{final_inactive_count} inactive wells** {source_txt}.")
+                    st.info(f"WI Liability Note: The calculations above include an exact estimated P&A liability of **${abandon_data['total']:,.0f}** deducted entirely in Month 1 based on the **{final_inactive_count} inactive wells** {source_txt}.")
 
                 st.markdown("---")
-                
                 st.subheader("Fluid Future Prices (WTI & NYMEX)")
                 end_date_prices = pd.Timestamp.today() + pd.DateOffset(years=10)
                 price_chart_data = df_prices[(df_prices["Date"] >= pd.Timestamp.today()) & (df_prices["Date"] <= end_date_prices)]
-                
                 if not price_chart_data.empty:
-                    chart_df = price_chart_data.set_index("Date")[["WTI", "NYMEX"]]
-                    st.line_chart(chart_df, x_label="Time (Years)", y_label="Price (USD)")
+                    st.line_chart(price_chart_data.set_index("Date")[["WTI", "NYMEX"]], x_label="Time (Years)", y_label="Price (USD)")
 
                 st.markdown("---")
-                
                 st.subheader("Net Cash Flow Projection (First 10 years)")
-                cf_chart_data = forecast.head(120).set_index("Date")[["Net CF ($)"]]
-                st.line_chart(cf_chart_data, x_label="Time (Years)", y_label="Net Cash Flow (USD)")
+                st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios.")
+                
+                # Combinando ambas declinaciones para la gráfica
+                combined_cf = pd.DataFrame({
+                    "Date": forecast_5yr["Date"],
+                    "CF (5-Year Decline)": forecast_5yr["Net CF ($)"],
+                    "CF (1-Year Decline)": forecast_1yr["Net CF ($)"]
+                }).head(120).set_index("Date")
+                
+                st.line_chart(combined_cf, x_label="Time (Years)", y_label="Net Cash Flow (USD)")
                 
                 st.markdown("---")
-                
                 st.subheader("Underwriter Technical Notes (Copy & Paste)")
-                
                 if wells_summary:
                     str_1y = f"{dec_1yr_input:.2f}% (Auto-detected: {fit_1y['eff_decline']*100:.1f}%)" if fit_1y['success'] else f"{dec_1yr_input:.2f}%"
                     str_5y = f"{dec_5yr_input:.2f}% (Auto-detected: {fit_5y['eff_decline']*100:.1f}%)" if fit_5y['success'] else f"{dec_5yr_input:.2f}%"
-                    
                     if wells_summary["total_wells"] == 1:
                         notes = f"""- Production decline rate for last yr: {str_1y}\n- Production decline rate for last 5 yrs: {str_5y}"""
                     else:
-                        active_prod = wells_summary['active_oil']['n']
-                        tvd_prod = wells_summary['active_oil']['tvd_avg']
-                        active_inj = wells_summary['active_inj']['n']
-                        tvd_inj = wells_summary['active_inj']['tvd_avg']
-                        active_total = active_prod + active_inj
-                        
+                        active_prod, tvd_prod = wells_summary['active_oil']['n'], wells_summary['active_oil']['tvd_avg']
+                        active_inj, tvd_inj = wells_summary['active_inj']['n'], wells_summary['active_inj']['tvd_avg']
                         def fmt_tvd(v): return f"{v:,.0f} ft" if not np.isnan(v) else "N/A"
-                        
-                        tmin = wells_summary['inactive_ta']['tvd_min']
-                        tmax = wells_summary['inactive_ta']['tvd_max']
+                        tmin, tmax = wells_summary['inactive_ta']['tvd_min'], wells_summary['inactive_ta']['tvd_max']
                         tvd_range = f"{tmin:,.0f} ft - {tmax:,.0f} ft" if not np.isnan(tmin) else "N/A"
-                        
-                        notes = f"""- Active wells: {active_total} (Producers: {active_prod} with Avg TVD: {fmt_tvd(tvd_prod)} | Injectors: {active_inj} with Avg TVD: {fmt_tvd(tvd_inj)})
-- Inactive wells: {wells_summary['inactive_ta']['n']}
-- P&A wells: {wells_summary['pa_wells']['n']}
-- Production decline rate for last yr: {str_1y}
-- Production decline rate for last 5 yrs: {str_5y}
-- TVD range for inactive wells: {tvd_range}"""
-                        
-                        other_stats = wells_summary.get("other_statuses", {})
-                        if other_stats:
-                            extra_str = ", ".join([f"{k} ({v})" for k, v in other_stats.items()])
-                            notes += f"\n- Other statuses found: {extra_str}"
-                            
+                        notes = f"""- Active wells: {active_prod + active_inj} (Producers: {active_prod} with Avg TVD: {fmt_tvd(tvd_prod)} | Injectors: {active_inj} with Avg TVD: {fmt_tvd(tvd_inj)})\n- Inactive wells: {wells_summary['inactive_ta']['n']}\n- P&A wells: {wells_summary['pa_wells']['n']}\n- Production decline rate for last yr: {str_1y}\n- Production decline rate for last 5 yrs: {str_5y}\n- TVD range for inactive wells: {tvd_range}"""
+                        if wells_summary.get("other_statuses"): notes += f"\n- Other statuses found: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])}"
                     st.code(notes, language="markdown")
 
         except Exception as e:

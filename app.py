@@ -251,8 +251,8 @@ if st.session_state.run_eval:
                     
                 with col_o2:
                     st.markdown("**Valuation 2: Target 25% IRR**")
-                    val_dcf_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
-                    st.metric("Estimated Offer Value", val_dcf_str)
+                    val_dcf_25_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
+                    st.metric("Estimated Offer Value", val_dcf_25_str)
                     irr_25 = val_dcf_25['IRR (%)']
                     if np.isnan(irr_25): st.metric("IRR (%)", "25.00%", "Target 25% Met")
                     else: st.metric("IRR (%)", f"{irr_25:.2f}%", "Target 25% Met")
@@ -306,6 +306,7 @@ if st.session_state.run_eval:
 
                 st.markdown("---")
                 
+                # --- GRÁFICA DE PRECIOS OPTIMIZADA CON MÁRGENES ---
                 st.subheader("Fluid Future Prices (WTI & NYMEX)")
                 end_date_prices = pd.Timestamp.today() + pd.DateOffset(years=10)
                 price_chart_data = df_prices[(df_prices["Date"] >= pd.Timestamp.today()) & (df_prices["Date"] <= end_date_prices)]
@@ -320,16 +321,17 @@ if st.session_state.run_eval:
                         plot_bgcolor="white", paper_bgcolor="white",
                         font=dict(color="#0F2A4A", size=12), 
                         legend=dict(font=dict(color="#0F2A4A")), 
-                        margin=dict(l=0, r=0, t=30, b=0)
+                        margin=dict(l=70, r=70, t=30, b=30) # Márgenes aumentados para evitar choques
                     )
-                    fig_prices.update_xaxes(showgrid=False, title_text="Time", title_font=dict(color="#0F2A4A"), dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
-                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", title_font=dict(color="#0F2A4A"), showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=False)
-                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", title_font=dict(color="#0F2A4A"), showgrid=False, tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=True)
+                    fig_prices.update_xaxes(title_text="", showgrid=False, dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
+                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", title_standoff=15, title_font=dict(color="#0F2A4A"), showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=False)
+                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", title_standoff=15, title_font=dict(color="#0F2A4A"), showgrid=False, tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=True)
                     
                     st.plotly_chart(fig_prices, use_container_width=True, theme=None)
 
                 st.markdown("---")
                 
+                # --- GRÁFICA DE FLUJO DE CAJA OPTIMIZADA CON MÁRGENES ---
                 st.subheader("Net Cash Flow Projection (First 10 years)")
                 st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios. (You can zoom in to see the details ignoring the Month 1 P&A drop).")
                 
@@ -345,38 +347,48 @@ if st.session_state.run_eval:
                     plot_bgcolor="white", paper_bgcolor="white",
                     font=dict(color="#0F2A4A", size=12),
                     legend=dict(font=dict(color="#0F2A4A")), 
-                    margin=dict(l=0, r=0, t=30, b=0)
+                    margin=dict(l=70, r=40, t=30, b=30) # Márgenes aumentados para evitar choques
                 )
-                fig_cf.update_xaxes(showgrid=False, title_text="Time", title_font=dict(color="#0F2A4A"), dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
-                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", title_font=dict(color="#0F2A4A"), showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f", tickfont=dict(color="#0F2A4A"))
+                fig_cf.update_xaxes(title_text="", showgrid=False, dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
+                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", title_standoff=15, title_font=dict(color="#0F2A4A"), showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f", tickfont=dict(color="#0F2A4A"))
                 
                 st.plotly_chart(fig_cf, use_container_width=True, theme=None)
                 
                 st.markdown("---")
+                
+                # --- NUEVA LÓGICA DEL WRITE UP CON LAS REGLAS REQUERIDAS ---
                 st.subheader("Underwriter Technical Notes (Copy & Paste)")
                 if wells_summary:
                     str_1y = f"{dec_1yr_input:.2f}% (Auto-detected: {fit_1y['eff_decline']*100:.1f}%)" if fit_1y['success'] else f"{dec_1yr_input:.2f}%"
                     str_5y = f"{dec_5yr_input:.2f}% (Auto-detected: {fit_5y['eff_decline']*100:.1f}%)" if fit_5y['success'] else f"{dec_5yr_input:.2f}%"
-                    gross_val_str = f"-${abs(matrix_gross_offer):,.0f}" if matrix_gross_offer < 0 else f"${matrix_gross_offer:,.0f}"
                     
                     if wells_summary["total_wells"] == 1:
                         notes = f"""Write Up
+- Interest Type Evaluated: {interest_type.upper()}
 
 Production will be forecasted using OFM:
 - Production decline rate for last yr = {str_1y}
 - Production decline rate for last 5 yrs = {str_5y}
+"""
+                        if interest_type == "WI":
+                            notes += f"\nSince this is a Working Interest (WI) evaluation, environmental liability was accounted for.\n- Total P&A Liability Deduction: -${abandon_data['total']:,.0f}\n"
 
-Based on the {risk_class}, a multiple of {assigned_mult}X will be used to generate an offer:
-Gross offer = {assigned_mult} * ${lycf:,.0f}
-Gross offer = {gross_val_str}
-P&A Deduction = -${abandon_data['total']:,.0f}
-Total Net Matrix Offer = {net_str}"""
+                        notes += f"""
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 
+Generated Evaluation Offer Range:
+- Valuation 1 (Net Matrix Rule @ {assigned_mult}x): {net_str}
+- Valuation 2 (Target 25% IRR): {val_dcf_25_str}
+- Valuation 3 (Standard DCF PV 17.5%): {val_dcf17_str}"""
+
                     else:
                         active_prod, tvd_prod = wells_summary['active_oil']['n'], wells_summary['active_oil']['tvd_avg']
                         active_inj, tvd_inj = wells_summary['active_inj']['n'], wells_summary['active_inj']['tvd_avg']
+                        
                         def fmt_tvd(v): return f"{v:,.0f}'" if not np.isnan(v) else "N/A"
+                        
                         tmin, tmax = wells_summary['inactive_ta']['tvd_min'], wells_summary['inactive_ta']['tvd_max']
-                        tvd_range = f"{tmin:,.0f}' - {tmax:,.0f}'" if not np.isnan(tmin) else "N/A"
+                        tavg_inact = wells_summary['inactive_ta']['tvd_avg']
+                        tvd_range = f"{tmin:,.0f}' - {tmax:,.0f}' (AVG TVD: {fmt_tvd(tavg_inact)})" if not np.isnan(tmin) else "N/A"
                         
                         if audit_res['tvd_pass'] and audit_res['water_pass']:
                             audit_p = f"The presence of {active_inj} injection wells with an average TVD ({fmt_tvd(tvd_inj)}), comparable to the producing wells ({fmt_tvd(tvd_prod)}), confirms Zone and TVD Consistency. Furthermore, the Waterflood Signature Identification verifies that the water production volume is substantially and consistently higher than the oil production ({audit_res['water_signature']}). This rigorously confirms the unit is under an active secondary recovery project."
@@ -387,11 +399,12 @@ Total Net Matrix Offer = {net_str}"""
                             audit_p += "There may be no active waterflood supporting this asset."
 
                         notes = f"""Write Up
+- Interest Type Evaluated: {interest_type.upper()}
 - Unit located in DI:
   - {active_prod + active_inj} ACTIVE wells
     - {active_inj} Injection wells (AVG TVD = {fmt_tvd(tvd_inj)})
     - {active_prod} Oil producers (AVG TVD = {fmt_tvd(tvd_prod)})
-  - {wells_summary['inactive_ta']['n']} INACTIVE wells
+  - {wells_summary['inactive_ta']['n']} INACTIVE / SHUT-IN / TA wells
     - TVD range for inactive wells: {tvd_range}
   - {wells_summary['pa_wells']['n']} P&A wells
 
@@ -400,13 +413,19 @@ Total Net Matrix Offer = {net_str}"""
 Therefore, production will be forecasted using OFM:
 - Production decline rate for last yr = {str_1y}
 - Production decline rate for last 5 yrs = {str_5y}
+"""
+                        if interest_type == "WI":
+                            notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA/P&A) were accounted for environmental liability.\n- Total P&A Liability Deduction: -${abandon_data['total']:,.0f}\n"
 
-Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate an offer:
-Gross offer = {assigned_mult} * ${lycf:,.0f}
-Gross offer = {gross_val_str}
-P&A Deduction = -${abandon_data['total']:,.0f}
-Total Net Matrix Offer = {net_str}"""
+                        notes += f"""
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 
+Generated Evaluation Offer Range:
+- Valuation 1 (Net Matrix Rule @ {assigned_mult}x): {net_str}
+- Valuation 2 (Target 25% IRR): {val_dcf_25_str}
+- Valuation 3 (Standard DCF PV 17.5%): {val_dcf17_str}"""
+                        
                         if wells_summary.get("other_statuses"): notes += f"\n\n- Other statuses found: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])}"
+                        
                     st.code(notes, language="markdown")
 
         except Exception as e:

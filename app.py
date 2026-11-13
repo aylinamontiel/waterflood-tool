@@ -21,38 +21,39 @@ def get_base64_image(image_path):
 logo_base64 = get_base64_image("logo.png")
 logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="width: 250px; margin-bottom: 30px;">' if logo_base64 else ''
 
-
-# ---------- Helpers de formato ----------
-def money(v):
-    return f"-${abs(v):,.0f}" if v < 0 else f"${v:,.0f}"
-
-def _valid(val):
-    return (not np.isnan(val["IRR (%)"])) and val["Estimated Offer ($)"] > 0
-
-def irr_txt(val):
-    return f"{val['IRR (%)']:.2f}%" if _valid(val) else "N/A"
-
-def mult_txt(val):
-    m = val["Annual CF Multiple (x)"]
-    return f"{m:.2f}x" if (not np.isnan(m)) and val["Estimated Offer ($)"] > 0 else "N/A"
-
-def fmt_auto_decline(fit):
-    if not fit["success"]:
-        return ""
-    d = fit["eff_decline"] * 100
-    if d < 0:
-        return f" (Auto-detected: {d:.1f}% - production increasing)"
-    return f" (Auto-detected: {d:.1f}%)"
-
+# INYECCIÓN DE COLORES OFICIALES CM
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Montserrat', sans-serif; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Montserrat:wght@400;600;700&display=swap');
+    
+    html, body, [class*="css"] { 
+        font-family: 'Montserrat', 'Inter', sans-serif; 
+    }
     [data-testid="stStatusWidget"] {visibility: hidden;}
     .stDeployButton {display: none;}
+    
+    /* Botón Principal con colores CM */
+    .stButton>button {
+        background-color: #004AAD; /* Azul Principal CM */
+        color: white;
+        border-radius: 6px;
+        padding: 0.5rem 2.5rem;
+        font-weight: 600;
+        border: none;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .stButton>button:hover {
+        background-color: #FFE500; /* Amarillo CM */
+        color: #004AAD;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    /* Animación de Carga con colores CM */
     .loader-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 40vh; }
     .cube-grid { width: 50px; height: 50px; margin: 20px auto; }
-    .cube-grid .cube { width: 33%; height: 33%; background-color: #D4AF37; float: left; animation: cubeGridScaleDelay 1.3s infinite ease-in-out; }
+    .cube-grid .cube { width: 33%; height: 33%; background-color: #38B6FF; float: left; animation: cubeGridScaleDelay 1.3s infinite ease-in-out; }
     .cube-grid .cube1 { animation-delay: 0.2s; } .cube-grid .cube2 { animation-delay: 0.3s; } .cube-grid .cube3 { animation-delay: 0.4s; }
     .cube-grid .cube4 { animation-delay: 0.1s; } .cube-grid .cube5 { animation-delay: 0.2s; } .cube-grid .cube6 { animation-delay: 0.3s; }
     .cube-grid .cube7 { animation-delay: 0.0s; } .cube-grid .cube8 { animation-delay: 0.1s; } .cube-grid .cube9 { animation-delay: 0.2s; }
@@ -68,7 +69,7 @@ st.markdown("---")
 
 with st.sidebar:
     if os.path.exists("logo.png"):
-        st.image("logo.png", width=220)
+        st.image("logo.png", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
     st.header("1. Base Financials")
@@ -137,16 +138,12 @@ else:
         st.caption("Export WG table from Drilling Info")
 
 st.markdown("---")
-run_clicked = st.button("Run WaterFlood Evaluation", type="primary", key="btn_run")
-if run_clicked:
+if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
     st.session_state.run_eval = True
 
 if st.session_state.run_eval:
-    distress_mode = interest_type == "WI" and operator_distress
-    if not distress_mode and lycf <= 0.0:
-        st.warning("Base LYCF must be greater than 0. If the operator's cash flow is negative and you hold a WI, select 'Operator in Negative Cash Flow' in the sidebar.")
-    elif interest_type == "WI" and wi_pct <= 0.0:
-        st.warning("Average Working Interest (WI) must be greater than 0. Please check the sidebar inputs.")
+    if lycf == 0.0 or (interest_type == "WI" and wi_pct == 0.0):
+        st.warning("Warning: LYCF and Average WI Decimal cannot be 0. Please check the sidebar inputs.")
     elif interest_type == "WI" and operator_distress and not wells_file:
         st.warning("Please upload the Wells Table to calculate the P&A liability.")
     elif not (interest_type == "WI" and operator_distress) and (not prod_file or not price_file or (interest_type == "WI" and not wells_file)):
@@ -162,12 +159,11 @@ if st.session_state.run_eval:
                         <div class="cube cube4"></div><div class="cube cube5"></div><div class="cube cube6"></div>
                         <div class="cube cube7"></div><div class="cube cube8"></div><div class="cube cube9"></div>
                     </div>
-                    <h3 style="color: #0F2A4A; font-family: 'Montserrat', sans-serif;">Processing Data...</h3>
+                    <h3 style="color: #38B6FF; font-family: 'Montserrat', sans-serif;">Processing Data...</h3>
                 </div>
             """, unsafe_allow_html=True)
             
-        if run_clicked:
-            time.sleep(1.0)
+        time.sleep(1.5)
         
         try:
             if interest_type == "WI" and operator_distress:
@@ -252,17 +248,6 @@ if st.session_state.run_eval:
                 val_flat_dcf_25 = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=val_flat_dcf["PV 25.0% ($)"])
                 val_flat_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
                 
-                # 1-Year decline scenario (shown side by side with the 5-Year base)
-                forecast_flat_1yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_1yr_input/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
-                
-                val_dcf_1y = engine.evaluate_cashflow(forecast_1yr["Net CF ($)"], forecast_1yr["Date"], fixed_offer=None)
-                val_dcf_25_1y = engine.evaluate_cashflow(forecast_1yr["Net CF ($)"], forecast_1yr["Date"], fixed_offer=val_dcf_1y["PV 25.0% ($)"])
-                val_wf_1y = engine.evaluate_cashflow(forecast_1yr["Net CF ($)"], forecast_1yr["Date"], fixed_offer=matrix_net_offer)
-                
-                val_flat_dcf_1y = engine.evaluate_cashflow(forecast_flat_1yr["Net CF ($)"], forecast_flat_1yr["Date"], fixed_offer=None)
-                val_flat_dcf_25_1y = engine.evaluate_cashflow(forecast_flat_1yr["Net CF ($)"], forecast_flat_1yr["Date"], fixed_offer=val_flat_dcf_1y["PV 25.0% ($)"])
-                val_flat_matrix_1y = engine.evaluate_cashflow(forecast_flat_1yr["Net CF ($)"], forecast_flat_1yr["Date"], fixed_offer=matrix_net_offer)
-                
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
                 
@@ -276,84 +261,55 @@ if st.session_state.run_eval:
                     st.markdown("---")
                 
                 st.subheader("Estimated Offers & Returns (Strip Pricing)")
-                st.caption(f"Base case: futures market strip prices and the 5-Year Decline rate ({dec_5yr_input:.2f}%). The 1-Year Decline scenario is shown in the comparison table below.")
+                st.caption("Base valuations using futures market strip prices and the 5-Year Decline rate.")
                 col_o1, col_o2, col_o3 = st.columns(3)
                 
                 with col_o1:
                     st.markdown("**Valuation 1: Matrix Rule**")
                     if interest_type == "WI":
-                        st.write(f"Gross Offer ({assigned_mult}x): **{money(matrix_gross_offer)}**")
+                        gross_str = f"-${abs(matrix_gross_offer):,.0f}" if matrix_gross_offer < 0 else f"${matrix_gross_offer:,.0f}"
+                        st.write(f"Gross Offer ({assigned_mult}x): **{gross_str}**")
                         st.write(f"P&A Deduction: **-${abandon_data['total']:,.0f}**")
-                    net_str = money(matrix_net_offer)
+                    net_str = f"-${abs(matrix_net_offer):,.0f}" if matrix_net_offer < 0 else f"${matrix_net_offer:,.0f}"
                     st.metric("Final Net Matrix Offer", net_str)
                     irr_wf = val_wf['IRR (%)']
-                    st.metric("IRR (%)", irr_txt(val_wf), delta=f"{irr_wf - 15:+.1f} pts vs 15% hurdle" if _valid(val_wf) else None)
-                    st.metric("Annual CF Multiple", mult_txt(val_wf))
+                    st.metric("IRR (%)", f"{irr_wf:.2f}%" if not np.isnan(irr_wf) else "N/A", delta="Hurdle Rate 15%", delta_color="normal" if np.isnan(irr_wf) else ("inverse" if irr_wf < 15 else "normal"))
                     
                 with col_o2:
                     st.markdown("**Valuation 2: Target 25% IRR**")
-                    st.metric("Estimated Offer Value", money(val_dcf_25['Estimated Offer ($)']))
-                    st.metric("IRR (%)", irr_txt(val_dcf_25), delta="Target 25%" if _valid(val_dcf_25) else None, delta_color="off")
-                    st.metric("Annual CF Multiple", mult_txt(val_dcf_25))
+                    val_dcf_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
+                    st.metric("Estimated Offer Value", val_dcf_str)
+                    st.metric("IRR (%)", f"{val_dcf_25['IRR (%)']:.2f}%", "Target 25% Met")
                     
                 with col_o3:
                     st.markdown("**Valuation 3: Standard DCF (PV 17.5%)**")
-                    st.metric("Estimated Offer Value", money(val_dcf['Estimated Offer ($)']))
-                    st.metric("IRR (%)", irr_txt(val_dcf), delta="Hurdle 17.5%" if _valid(val_dcf) else None, delta_color="off")
-                    st.metric("Annual CF Multiple", mult_txt(val_dcf))
+                    val_dcf17_str = f"-${abs(val_dcf['Estimated Offer ($)']):,.0f}" if val_dcf['Estimated Offer ($)'] < 0 else f"${val_dcf['Estimated Offer ($)']:,.0f}"
+                    st.metric("Estimated Offer Value", val_dcf17_str)
+                    st.metric("IRR (%)", f"{val_dcf['IRR (%)']:.2f}%", "Hurdle 17.5% Met")
 
                 st.markdown("---")
                 
                 st.subheader("Stress Test Valuations ($50 WTI / $3 NYMEX)")
-                st.caption("Calculates the offer values if commodity prices collapse to flat $50/$3 (5-Year Decline base case).")
+                st.caption("Calculates the exact offer values required if commodity prices collapse to flat $50/$3 (using 5-Year Decline).")
                 c_st1, c_st2, c_st3 = st.columns(3)
                 
                 with c_st1:
                     st.markdown("**Matrix Offer (Stressed)**")
                     st.metric("Matrix Assumed Offer", net_str)
                     irr_flat = val_flat_matrix['IRR (%)']
-                    st.metric("Stressed IRR (%)", irr_txt(val_flat_matrix), delta=f"{irr_flat - 15:+.1f} pts vs 15% hurdle" if _valid(val_flat_matrix) else None)
-                    st.metric("Annual CF Multiple", mult_txt(val_flat_matrix))
+                    st.metric("Stressed IRR (%)", f"{irr_flat:.2f}%" if not np.isnan(irr_flat) else "N/A", delta="Compared to 15% Hurdle", delta_color="normal" if np.isnan(irr_flat) else ("inverse" if irr_flat < 15 else "normal"))
                 
                 with c_st2:
                     st.markdown("**Target 25% IRR (Flat Prices)**")
-                    st.metric("Required Offer for 25%", money(val_flat_dcf_25['Estimated Offer ($)']))
-                    st.metric("IRR (%)", irr_txt(val_flat_dcf_25))
-                    st.metric("Annual CF Multiple", mult_txt(val_flat_dcf_25))
+                    flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
+                    st.metric("Required Offer for 25%", flat_25_str)
+                    st.metric("IRR (%)", f"{val_flat_dcf_25['IRR (%)']:.2f}%")
                     
                 with c_st3:
                     st.markdown("**Standard DCF 17.5% (Flat Prices)**")
-                    st.metric("Required Offer for 17.5%", money(val_flat_dcf['Estimated Offer ($)']))
-                    st.metric("IRR (%)", irr_txt(val_flat_dcf))
-                    st.metric("Annual CF Multiple", mult_txt(val_flat_dcf))
-
-                st.markdown("---")
-                
-                st.subheader("Decline Scenario Comparison: 5-Year (Base) vs 1-Year")
-                if dec_1yr_input > dec_5yr_input:
-                    st.caption(f"The 1-Year decline ({dec_1yr_input:.2f}%) is higher than the 5-Year decline ({dec_5yr_input:.2f}%), so the 1-Year scenario is the more conservative case.")
-                elif dec_1yr_input < dec_5yr_input:
-                    st.caption(f"The 1-Year decline ({dec_1yr_input:.2f}%) is lower than the 5-Year decline ({dec_5yr_input:.2f}%), so the 5-Year base case is the more conservative one.")
-                else:
-                    st.caption("Both decline rates are equal, so both scenarios give the same result.")
-                
-                def cmp_row(name, v5, v1):
-                    return {
-                        "Valuation": name,
-                        "5-Yr Offer": money(v5["Estimated Offer ($)"]), "5-Yr IRR": irr_txt(v5), "5-Yr CF Multiple": mult_txt(v5),
-                        "1-Yr Offer": money(v1["Estimated Offer ($)"]), "1-Yr IRR": irr_txt(v1), "1-Yr CF Multiple": mult_txt(v1),
-                    }
-                
-                cmp_rows = [
-                    cmp_row("Matrix Rule (Strip)", val_wf, val_wf_1y),
-                    cmp_row("Target 25% IRR (Strip)", val_dcf_25, val_dcf_25_1y),
-                    cmp_row("Standard DCF 17.5% (Strip)", val_dcf, val_dcf_1y),
-                    cmp_row("Matrix Rule (Flat $50/$3)", val_flat_matrix, val_flat_matrix_1y),
-                    cmp_row("Target 25% IRR (Flat)", val_flat_dcf_25, val_flat_dcf_25_1y),
-                    cmp_row("Standard DCF 17.5% (Flat)", val_flat_dcf, val_flat_dcf_1y),
-                ]
-                st.dataframe(pd.DataFrame(cmp_rows), hide_index=True)
-                st.caption("A negative decline (production increasing) is treated as 0% in the projections. The Matrix multiple always uses the higher of the two declines.")
+                    flat_17_str = f"-${abs(val_flat_dcf['Estimated Offer ($)']):,.0f}" if val_flat_dcf['Estimated Offer ($)'] < 0 else f"${val_flat_dcf['Estimated Offer ($)']:,.0f}"
+                    st.metric("Required Offer for 17.5%", flat_17_str)
+                    st.metric("IRR (%)", f"{val_flat_dcf['IRR (%)']:.2f}%")
 
                 if interest_type == "WI":
                     source_txt = "manually entered" if n_inactive_override > 0 else "found in the uploaded file"
@@ -370,7 +326,6 @@ if st.session_state.run_eval:
                 st.subheader("Net Cash Flow Projection (First 10 years)")
                 st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios.")
                 
-                # Combinando ambas declinaciones para la gráfica
                 combined_cf = pd.DataFrame({
                     "Date": forecast_5yr["Date"],
                     "CF (5-Year Decline)": forecast_5yr["Net CF ($)"],
@@ -382,8 +337,8 @@ if st.session_state.run_eval:
                 st.markdown("---")
                 st.subheader("Underwriter Technical Notes (Copy & Paste)")
                 if wells_summary:
-                    str_1y = f"{dec_1yr_input:.2f}%" + fmt_auto_decline(fit_1y)
-                    str_5y = f"{dec_5yr_input:.2f}%" + fmt_auto_decline(fit_5y)
+                    str_1y = f"{dec_1yr_input:.2f}% (Auto-detected: {fit_1y['eff_decline']*100:.1f}%)" if fit_1y['success'] else f"{dec_1yr_input:.2f}%"
+                    str_5y = f"{dec_5yr_input:.2f}% (Auto-detected: {fit_5y['eff_decline']*100:.1f}%)" if fit_5y['success'] else f"{dec_5yr_input:.2f}%"
                     if wells_summary["total_wells"] == 1:
                         notes = f"""- Production decline rate for last yr: {str_1y}\n- Production decline rate for last 5 yrs: {str_5y}"""
                     else:

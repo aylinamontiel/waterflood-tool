@@ -404,4 +404,57 @@ Stress Test Valuations ($50 WTI / $3 NYMEX):
                         tvd_range = f"{tmin:,.0f}' - {tmax:,.0f}' (AVG TVD: {fmt_tvd(tavg_inact)})" if not np.isnan(tmin) else "N/A"
                         
                         if audit_res['tvd_pass'] and audit_res['water_pass']:
-                            audit_p = f"The presence of {active_inj} injection wells with an average TVD ({fmt_tvd(tvd_inj
+                            audit_p = f"The presence of {active_inj} injection wells with an average TVD ({fmt_tvd(tvd_inj)}), comparable to the producing wells ({fmt_tvd(tvd_prod)}), confirms Zone and TVD Consistency. Furthermore, the Waterflood Signature Identification verifies that the water production volume is substantially and consistently higher than the oil production ({audit_res['water_signature']}). This rigorously confirms the unit is under an active secondary recovery project."
+                        else:
+                            audit_p = "⚠️ The project failed the Waterflood Technical Audit. "
+                            if not audit_res['tvd_pass']: audit_p += "Injection wells do not share a highly similar TVD with producers. "
+                            if not audit_res['water_pass']: audit_p += "Water production volume does not exhibit an active waterflood signature. "
+                            audit_p += "There may be no active waterflood supporting this asset."
+
+                        notes = f"""Write Up
+- Interest Type Evaluated: {interest_type.upper()}
+- Unit located in DI:
+  - {active_prod + active_inj} ACTIVE wells
+    - {active_inj} Injection wells (AVG TVD = {fmt_tvd(tvd_inj)})
+    - {active_prod} Oil producers (AVG TVD = {fmt_tvd(tvd_prod)})
+  - {wells_summary['inactive_ta']['n']} INACTIVE / SHUT-IN / TA wells
+    - TVD range for inactive wells: {tvd_range}
+  - {wells_summary['pa_wells']['n']} P&A wells
+
+{audit_p}
+
+Therefore, production will be forecasted using OFM:
+- Production decline rate for last yr = {str_1y}
+- Production decline rate for last 5 yrs = {str_5y}
+"""
+                        if interest_type == "WI":
+                            notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA/P&A) were accounted for environmental liability.\n"
+
+                        notes += f"""
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 
+
+Base Valuation Calculation (Strip Pricing):
+- Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
+- P&A Deduction = -${abandon_data['total']:,.0f}
+- Net Matrix Offer = {net_str}
+
+Generated Evaluation Offer Range (Strip Pricing):
+- Valuation 1 (Net Matrix Rule @ {assigned_mult}x): {net_str}
+- Valuation 2 (Target 25% IRR): {val_dcf_25_str}
+- Valuation 3 (Standard DCF PV 17.5%): {val_dcf17_str}
+
+Stress Test Valuations ($50 WTI / $3 NYMEX):
+- Stressed Matrix Offer Entry: {stressed_net_str}
+- Required Offer (Target 25%): {flat_25_str}
+- Required Offer (DCF 17.5%): {flat_17_str}"""
+                        
+                        if wells_summary.get("other_statuses"): notes += f"\n\n- Other statuses found: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])}"
+                        
+                        if matrix_net_offer < 0:
+                            notes += "\n\n⚠️ CONCLUSION: The estimated environmental liability exceeds the asset's gross value, resulting in negative valuation scenarios. Acquiring these wells is NOT recommended."
+
+                    st.code(notes, language="markdown")
+
+        except Exception as e:
+            loader_placeholder.empty()
+            st.error(f"An error occurred while processing the data: {str(e)}")

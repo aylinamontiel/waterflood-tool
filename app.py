@@ -223,8 +223,9 @@ if st.session_state.run_eval:
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
                 
+                # MENSAJE CORPORATIVO DIRECTO PARA OFERTAS NEGATIVAS
                 if matrix_net_offer < 0:
-                    st.warning("⚠️ **Liability Warning**: The estimated P&A environmental liability exceeds the gross valuation of the asset. This results in a negative net offer, meaning the acquisition of these wells currently represents a net financial liability.")
+                    st.warning("⚠️ **Financial Liability Alert**: The estimated P&A costs for the inactive wells exceed the projected revenue of the asset. A negative net offer implies that acquiring this property would require the seller to compensate Community Minerals to cover the impending abandonment liabilities.")
 
                 if wells_summary and audit_res:
                     st.subheader("Phase 1: WF & CO2 Technical Identification")
@@ -306,29 +307,31 @@ if st.session_state.run_eval:
 
                 st.markdown("---")
                 
+                # GRÁFICA DE PRECIOS CON TEXTOS EN AZUL OSCURO Y LÍNEAS MÁS GRUESAS
                 st.subheader("Fluid Future Prices (WTI & NYMEX)")
                 end_date_prices = pd.Timestamp.today() + pd.DateOffset(years=10)
                 price_chart_data = df_prices[(df_prices["Date"] >= pd.Timestamp.today()) & (df_prices["Date"] <= end_date_prices)]
                 
                 if not price_chart_data.empty:
                     fig_prices = make_subplots(specs=[[{"secondary_y": True}]])
-                    fig_prices.add_trace(go.Scatter(x=price_chart_data["Date"], y=price_chart_data["WTI"], name="WTI", line=dict(color="#004AAD")), secondary_y=False)
-                    fig_prices.add_trace(go.Scatter(x=price_chart_data["Date"], y=price_chart_data["NYMEX"], name="NYMEX", line=dict(color="#38B6FF")), secondary_y=True)
+                    fig_prices.add_trace(go.Scatter(x=price_chart_data["Date"], y=price_chart_data["WTI"], name="WTI", line=dict(color="#004AAD", width=3)), secondary_y=False)
+                    fig_prices.add_trace(go.Scatter(x=price_chart_data["Date"], y=price_chart_data["NYMEX"], name="NYMEX", line=dict(color="#FFE500", width=3)), secondary_y=True)
                     
                     fig_prices.update_layout(
                         hovermode="x unified",
                         plot_bgcolor="white", paper_bgcolor="white",
-                        font=dict(color="#0F2A4A"),
+                        font=dict(color="#0F2A4A", size=12), # Forzamos el texto a azul oscuro
                         margin=dict(l=0, r=0, t=30, b=0)
                     )
-                    fig_prices.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y")
-                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".1f", secondary_y=False)
-                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", showgrid=False, tickformat=".1f", secondary_y=True)
+                    fig_prices.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
+                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=False)
+                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", showgrid=False, tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=True)
                     
                     st.plotly_chart(fig_prices, use_container_width=True)
 
                 st.markdown("---")
                 
+                # GRÁFICA DE FLUJO DE CAJA CON 5-YEAR EN AMARILLO Y LÍNEAS MÁS GRUESAS
                 st.subheader("Net Cash Flow Projection (First 10 years)")
                 st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios. (You can zoom in to see the details ignoring the Month 1 P&A drop).")
                 
@@ -336,17 +339,17 @@ if st.session_state.run_eval:
                 cf_120_1yr = forecast_1yr.head(120)
                 
                 fig_cf = go.Figure()
-                fig_cf.add_trace(go.Scatter(x=cf_120_5yr["Date"], y=cf_120_5yr["Net CF ($)"], name="Net CF (5-Yr Decline)", line=dict(color="#004AAD")))
-                fig_cf.add_trace(go.Scatter(x=cf_120_1yr["Date"], y=cf_120_1yr["Net CF ($)"], name="Net CF (1-Yr Decline)", line=dict(color="#38B6FF")))
+                fig_cf.add_trace(go.Scatter(x=cf_120_5yr["Date"], y=cf_120_5yr["Net CF ($)"], name="Net CF (5-Yr Decline)", line=dict(color="#FFE500", width=3)))
+                fig_cf.add_trace(go.Scatter(x=cf_120_1yr["Date"], y=cf_120_1yr["Net CF ($)"], name="Net CF (1-Yr Decline)", line=dict(color="#38B6FF", width=3)))
                 
                 fig_cf.update_layout(
                     hovermode="x unified",
                     plot_bgcolor="white", paper_bgcolor="white",
-                    font=dict(color="#0F2A4A"),
+                    font=dict(color="#0F2A4A", size=12), # Forzamos el texto a azul oscuro
                     margin=dict(l=0, r=0, t=30, b=0)
                 )
-                fig_cf.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y")
-                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f")
+                fig_cf.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
+                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f", tickfont=dict(color="#0F2A4A"))
                 
                 st.plotly_chart(fig_cf, use_container_width=True)
                 

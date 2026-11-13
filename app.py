@@ -241,8 +241,8 @@ if st.session_state.run_eval:
                 df_prices_flat["WTI"] = 50.0
                 df_prices_flat["NYMEX"] = 3.0
                 
-                # 1. LYCF y Oferta Estresados (Nueva petición)
-                stressed_lycf = engine.calculate_stressed_lycf(lycf, base_prices_ratios, stressed_oil=50.0, stressed_gas=3.0)
+                # 1. LYCF y Oferta Estresados (Nueva petición) - AQUÍ ESTABA EL ERROR DE TIPEO
+                stressed_lycf = engine.calculate_stressed_lycf(lycf, base_ratios, stressed_oil=50.0, stressed_gas=3.0)
                 stressed_matrix_gross = assigned_mult * stressed_lycf
                 stressed_matrix_net = stressed_matrix_gross - abandon_data['total']
                 
@@ -299,7 +299,6 @@ if st.session_state.run_eval:
                 st.subheader("Stress Test Valuations ($50 WTI / $3 NYMEX)")
                 st.caption("Calculates the impact on the original offer and the new exact offer values required if commodity prices collapse to flat $50/$3.")
                 
-                # AHORA USAMOS 4 COLUMNAS PARA MOSTRAR TODO
                 c_st1, c_st2, c_st3, c_st4 = st.columns(4)
                 
                 with c_st1:

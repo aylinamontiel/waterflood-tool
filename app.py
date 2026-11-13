@@ -241,12 +241,19 @@ if st.session_state.run_eval:
                 df_prices_flat["WTI"] = 50.0
                 df_prices_flat["NYMEX"] = 3.0
                 
+                # 1. LYCF y Oferta Estresados (Nueva petición)
+                stressed_lycf = engine.calculate_stressed_lycf(lycf, base_prices_ratios, stressed_oil=50.0, stressed_gas=3.0)
+                stressed_matrix_gross = assigned_mult * stressed_lycf
+                stressed_matrix_net = stressed_matrix_gross - abandon_data['total']
+                
+                # 2. Generar el Forecast usando el LYCF original pero precios flat (para evaluación de flujos)
                 forecast_flat = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 
-                # Valuations under Flat Pricing
+                # 3. Valuaciones bajo precios colapsados
                 val_flat_dcf = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=None)
                 val_flat_dcf_25 = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=val_flat_dcf["PV 25.0% ($)"])
-                val_flat_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
+                val_flat_original_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
+                val_flat_stressed_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=stressed_matrix_net)
                 
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
@@ -290,25 +297,34 @@ if st.session_state.run_eval:
                 st.markdown("---")
                 
                 st.subheader("Stress Test Valuations ($50 WTI / $3 NYMEX)")
-                st.caption("Calculates the exact offer values required if commodity prices collapse to flat $50/$3 (using 5-Year Decline).")
-                c_st1, c_st2, c_st3 = st.columns(3)
+                st.caption("Calculates the impact on the original offer and the new exact offer values required if commodity prices collapse to flat $50/$3.")
+                
+                # AHORA USAMOS 4 COLUMNAS PARA MOSTRAR TODO
+                c_st1, c_st2, c_st3, c_st4 = st.columns(4)
                 
                 with c_st1:
-                    st.markdown("**Matrix Offer (Stressed)**")
-                    st.metric("Matrix Assumed Offer", net_str)
-                    irr_flat = val_flat_matrix['IRR (%)']
-                    st.metric("Stressed IRR (%)", f"{irr_flat:.2f}%" if not np.isnan(irr_flat) else "N/A", delta="Compared to 15% Hurdle", delta_color="normal" if np.isnan(irr_flat) else ("inverse" if irr_flat < 15 else "normal"))
+                    st.markdown("**1. Original Matrix (Risk)**")
+                    st.metric("Original Assumed Offer", net_str)
+                    irr_flat_orig = val_flat_original_matrix['IRR (%)']
+                    st.metric("Dropped IRR (%)", f"{irr_flat_orig:.2f}%" if not np.isnan(irr_flat_orig) else "N/A", delta="Compared to 15%", delta_color="normal" if np.isnan(irr_flat_orig) else ("inverse" if irr_flat_orig < 15 else "normal"))
                 
                 with c_st2:
-                    st.markdown("**Target 25% IRR (Flat Prices)**")
-                    flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
-                    st.metric("Required Offer for 25%", flat_25_str)
-                    st.metric("IRR (%)", f"{val_flat_dcf_25['IRR (%)']:.2f}%")
+                    st.markdown("**2. New Stressed Matrix**")
+                    stressed_net_str = f"-${abs(stressed_matrix_net):,.0f}" if stressed_matrix_net < 0 else f"${stressed_matrix_net:,.0f}"
+                    st.metric("Stressed Offer Entry", stressed_net_str)
+                    irr_stressed = val_flat_stressed_matrix['IRR (%)']
+                    st.metric("IRR (%)", f"{irr_stressed:.2f}%" if not np.isnan(irr_stressed) else "N/A")
                     
                 with c_st3:
-                    st.markdown("**Standard DCF 17.5% (Flat Prices)**")
+                    st.markdown("**3. Target 25% (Flat)**")
+                    flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
+                    st.metric("Required Offer (25%)", flat_25_str)
+                    st.metric("IRR (%)", f"{val_flat_dcf_25['IRR (%)']:.2f}%")
+                    
+                with c_st4:
+                    st.markdown("**4. DCF 17.5% (Flat)**")
                     flat_17_str = f"-${abs(val_flat_dcf['Estimated Offer ($)']):,.0f}" if val_flat_dcf['Estimated Offer ($)'] < 0 else f"${val_flat_dcf['Estimated Offer ($)']:,.0f}"
-                    st.metric("Required Offer for 17.5%", flat_17_str)
+                    st.metric("Required Offer (17.5%)", flat_17_str)
                     st.metric("IRR (%)", f"{val_flat_dcf['IRR (%)']:.2f}%")
 
                 if interest_type == "WI":

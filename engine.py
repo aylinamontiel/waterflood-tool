@@ -58,7 +58,6 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     d = pd.DataFrame({"ptype": ptype_col, "raw_status": raw_status, "tvd": tvd_col})
     d["inj"] = d["ptype"].str.contains("INJ")
 
-    # SOLUCIÓN DEL ERROR: Envolvemos 's' en str() para forzarlo a texto y evitar el fallo del float.
     def _map_status(s):
         s_cl = str(s).upper().replace("&", "").replace("/", "").replace(" ", "")
         if "PA" in s_cl or "PLUG" in s_cl or ("ABANDON" in s_cl and "TEMP" not in s_cl): return "PA"
@@ -174,6 +173,12 @@ def base_prices(prices: pd.DataFrame, prod: pd.DataFrame, months: int = 12) -> d
     gas_rev = float((win["Gas"] * pg).sum())
     tot = oil_rev + gas_rev
     return {"oil_base": float(po.mean()), "gas_base": float(pg.mean()), "oil_share": oil_rev / tot if tot > 0 else 1.0}
+
+def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil: float = 50.0, stressed_gas: float = 3.0) -> float:
+    ob = base_prices_ratios["oil_base"] if base_prices_ratios["oil_base"] > 0 else 1.0
+    gb = base_prices_ratios["gas_base"] if base_prices_ratios["gas_base"] > 0 else 1.0
+    stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
+    return float(lycf * stressed_pf)
 
 def calculate_abandonment(interest_type: str, n_inactive_wells: int, wi_pct: float, tvd_avg: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12, exact_tvd_sum: float = None) -> dict:
     if interest_type.upper() in ["NRI", "ORRI"]:

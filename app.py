@@ -32,9 +32,8 @@ st.markdown("""
     [data-testid="stStatusWidget"] {visibility: hidden;}
     .stDeployButton {display: none;}
     
-    /* Botón Principal con colores CM */
     .stButton>button {
-        background-color: #004AAD; /* Azul Principal CM */
+        background-color: #004AAD;
         color: white;
         border-radius: 6px;
         padding: 0.5rem 2.5rem;
@@ -45,12 +44,11 @@ st.markdown("""
         letter-spacing: 1px;
     }
     .stButton>button:hover {
-        background-color: #FFE500; /* Amarillo CM */
+        background-color: #FFE500;
         color: #004AAD;
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     
-    /* Animación de Carga con colores CM */
     .loader-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 40vh; }
     .cube-grid { width: 50px; height: 50px; margin: 20px auto; }
     .cube-grid .cube { width: 33%; height: 33%; background-color: #38B6FF; float: left; animation: cubeGridScaleDelay 1.3s infinite ease-in-out; }
@@ -225,7 +223,6 @@ if st.session_state.run_eval:
                     months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=exact_sum
                 )
                 
-                # FORECASTS (Strip Pricing)
                 forecast_5yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 forecast_1yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_1yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 
@@ -236,20 +233,16 @@ if st.session_state.run_eval:
                 matrix_net_offer = matrix_gross_offer - abandon_data['total']
                 val_wf = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=matrix_net_offer)
                 
-                # FORECASTS (Flat Pricing $50/$3)
                 df_prices_flat = df_prices.copy()
                 df_prices_flat["WTI"] = 50.0
                 df_prices_flat["NYMEX"] = 3.0
                 
-                # 1. LYCF y Oferta Estresados (Nueva petición) - AQUÍ ESTABA EL ERROR DE TIPEO
                 stressed_lycf = engine.calculate_stressed_lycf(lycf, base_ratios, stressed_oil=50.0, stressed_gas=3.0)
                 stressed_matrix_gross = assigned_mult * stressed_lycf
                 stressed_matrix_net = stressed_matrix_gross - abandon_data['total']
                 
-                # 2. Generar el Forecast usando el LYCF original pero precios flat (para evaluación de flujos)
                 forecast_flat = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 
-                # 3. Valuaciones bajo precios colapsados
                 val_flat_dcf = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=None)
                 val_flat_dcf_25 = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=val_flat_dcf["PV 25.0% ($)"])
                 val_flat_original_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
@@ -279,20 +272,35 @@ if st.session_state.run_eval:
                         st.write(f"P&A Deduction: **-${abandon_data['total']:,.0f}**")
                     net_str = f"-${abs(matrix_net_offer):,.0f}" if matrix_net_offer < 0 else f"${matrix_net_offer:,.0f}"
                     st.metric("Final Net Matrix Offer", net_str)
+                    
+                    # Manejo seguro del IRR
                     irr_wf = val_wf['IRR (%)']
-                    st.metric("IRR (%)", f"{irr_wf:.2f}%" if not np.isnan(irr_wf) else "N/A", delta="Hurdle Rate 15%", delta_color="normal" if np.isnan(irr_wf) else ("inverse" if irr_wf < 15 else "normal"))
+                    if np.isnan(irr_wf) or matrix_net_offer < 0:
+                        st.metric("IRR (%)", "N/A")
+                    else:
+                        st.metric("IRR (%)", f"{irr_wf:.2f}%", delta="Hurdle Rate 15%", delta_color="inverse" if irr_wf < 15 else "normal")
                     
                 with col_o2:
                     st.markdown("**Valuation 2: Target 25% IRR**")
                     val_dcf_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf_str)
-                    st.metric("IRR (%)", f"{val_dcf_25['IRR (%)']:.2f}%", "Target 25% Met")
+                    
+                    irr_25 = val_dcf_25['IRR (%)']
+                    if np.isnan(irr_25) or val_dcf_25['Estimated Offer ($)'] < 0:
+                        st.metric("IRR (%)", "N/A")
+                    else:
+                        st.metric("IRR (%)", f"{irr_25:.2f}%", "Target 25% Met")
                     
                 with col_o3:
                     st.markdown("**Valuation 3: Standard DCF (PV 17.5%)**")
                     val_dcf17_str = f"-${abs(val_dcf['Estimated Offer ($)']):,.0f}" if val_dcf['Estimated Offer ($)'] < 0 else f"${val_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf17_str)
-                    st.metric("IRR (%)", f"{val_dcf['IRR (%)']:.2f}%", "Hurdle 17.5% Met")
+                    
+                    irr_17 = val_dcf['IRR (%)']
+                    if np.isnan(irr_17) or val_dcf['Estimated Offer ($)'] < 0:
+                        st.metric("IRR (%)", "N/A")
+                    else:
+                        st.metric("IRR (%)", f"{irr_17:.2f}%", "Hurdle 17.5% Met")
 
                 st.markdown("---")
                 
@@ -305,26 +313,40 @@ if st.session_state.run_eval:
                     st.markdown("**1. Original Matrix (Risk)**")
                     st.metric("Original Assumed Offer", net_str)
                     irr_flat_orig = val_flat_original_matrix['IRR (%)']
-                    st.metric("Dropped IRR (%)", f"{irr_flat_orig:.2f}%" if not np.isnan(irr_flat_orig) else "N/A", delta="Compared to 15%", delta_color="normal" if np.isnan(irr_flat_orig) else ("inverse" if irr_flat_orig < 15 else "normal"))
+                    if np.isnan(irr_flat_orig) or matrix_net_offer < 0:
+                        st.metric("Dropped IRR (%)", "N/A")
+                    else:
+                        st.metric("Dropped IRR (%)", f"{irr_flat_orig:.2f}%", delta="Compared to 15%", delta_color="inverse" if irr_flat_orig < 15 else "normal")
                 
                 with c_st2:
                     st.markdown("**2. New Stressed Matrix**")
                     stressed_net_str = f"-${abs(stressed_matrix_net):,.0f}" if stressed_matrix_net < 0 else f"${stressed_matrix_net:,.0f}"
                     st.metric("Stressed Offer Entry", stressed_net_str)
                     irr_stressed = val_flat_stressed_matrix['IRR (%)']
-                    st.metric("IRR (%)", f"{irr_stressed:.2f}%" if not np.isnan(irr_stressed) else "N/A")
+                    if np.isnan(irr_stressed) or stressed_matrix_net < 0:
+                         st.metric("IRR (%)", "N/A")
+                    else:
+                         st.metric("IRR (%)", f"{irr_stressed:.2f}%")
                     
                 with c_st3:
                     st.markdown("**3. Target 25% (Flat)**")
                     flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (25%)", flat_25_str)
-                    st.metric("IRR (%)", f"{val_flat_dcf_25['IRR (%)']:.2f}%")
+                    irr_flat_25 = val_flat_dcf_25['IRR (%)']
+                    if np.isnan(irr_flat_25) or val_flat_dcf_25['Estimated Offer ($)'] < 0:
+                        st.metric("IRR (%)", "N/A")
+                    else:
+                        st.metric("IRR (%)", f"{irr_flat_25:.2f}%")
                     
                 with c_st4:
                     st.markdown("**4. DCF 17.5% (Flat)**")
                     flat_17_str = f"-${abs(val_flat_dcf['Estimated Offer ($)']):,.0f}" if val_flat_dcf['Estimated Offer ($)'] < 0 else f"${val_flat_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (17.5%)", flat_17_str)
-                    st.metric("IRR (%)", f"{val_flat_dcf['IRR (%)']:.2f}%")
+                    irr_flat_17 = val_flat_dcf['IRR (%)']
+                    if np.isnan(irr_flat_17) or val_flat_dcf['Estimated Offer ($)'] < 0:
+                         st.metric("IRR (%)", "N/A")
+                    else:
+                         st.metric("IRR (%)", f"{irr_flat_17:.2f}%")
 
                 if interest_type == "WI":
                     source_txt = "manually entered" if n_inactive_override > 0 else "found in the uploaded file"
@@ -338,16 +360,17 @@ if st.session_state.run_eval:
                     st.line_chart(price_chart_data.set_index("Date")[["WTI", "NYMEX"]], x_label="Time (Years)", y_label="Price (USD)")
 
                 st.markdown("---")
-                st.subheader("Net Cash Flow Projection (First 10 years)")
-                st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios.")
+                st.subheader("Operating Cash Flow Projection (First 10 years)")
+                st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios (Operating CF without P&A distortion).")
                 
+                # GRÁFICA AJUSTADA PARA USAR GROSS CF (SIN EL IMPACTO DE P&A)
                 combined_cf = pd.DataFrame({
                     "Date": forecast_5yr["Date"],
-                    "CF (5-Year Decline)": forecast_5yr["Net CF ($)"],
-                    "CF (1-Year Decline)": forecast_1yr["Net CF ($)"]
+                    "Operating CF (5-Yr Decline)": forecast_5yr["Gross CF ($)"],
+                    "Operating CF (1-Yr Decline)": forecast_1yr["Gross CF ($)"]
                 }).head(120).set_index("Date")
                 
-                st.line_chart(combined_cf, x_label="Time (Years)", y_label="Net Cash Flow (USD)")
+                st.line_chart(combined_cf, x_label="Time (Years)", y_label="Operating Cash Flow (USD)")
                 
                 st.markdown("---")
                 st.subheader("Underwriter Technical Notes (Copy & Paste)")

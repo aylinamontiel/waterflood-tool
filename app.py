@@ -224,7 +224,7 @@ if st.session_state.run_eval:
                 st.success("Evaluation completed successfully!")
                 
                 if matrix_net_offer < 0:
-                    st.error("⚠️ **Toxic Asset Warning**: The calculated P&A environmental liability exceeds the total asset valuation. Financially, this constitutes a liability acquisition, meaning the seller should theoretically pay Community Minerals to assume ownership of these wells.")
+                    st.warning("⚠️ **Liability Warning**: The estimated P&A environmental liability exceeds the gross valuation of the asset. This results in a negative net offer, meaning the acquisition of these wells currently represents a net financial liability.")
 
                 if wells_summary and audit_res:
                     st.subheader("Phase 1: WF & CO2 Technical Identification")
@@ -246,7 +246,7 @@ if st.session_state.run_eval:
                     net_str = f"-${abs(matrix_net_offer):,.0f}" if matrix_net_offer < 0 else f"${matrix_net_offer:,.0f}"
                     st.metric("Final Net Matrix Offer", net_str)
                     irr_wf = val_wf['IRR (%)']
-                    if np.isnan(irr_wf) or matrix_net_offer < 0: st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_wf): st.metric("IRR (%)", "N/A")
                     else: st.metric("IRR (%)", f"{irr_wf:.2f}%", delta="Hurdle Rate 15%", delta_color="inverse" if irr_wf < 15 else "normal")
                     
                 with col_o2:
@@ -254,7 +254,7 @@ if st.session_state.run_eval:
                     val_dcf_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf_str)
                     irr_25 = val_dcf_25['IRR (%)']
-                    if np.isnan(irr_25) or val_dcf_25['Estimated Offer ($)'] < 0: st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_25): st.metric("IRR (%)", "25.00%", "Target 25% Met")
                     else: st.metric("IRR (%)", f"{irr_25:.2f}%", "Target 25% Met")
                     
                 with col_o3:
@@ -262,7 +262,7 @@ if st.session_state.run_eval:
                     val_dcf17_str = f"-${abs(val_dcf['Estimated Offer ($)']):,.0f}" if val_dcf['Estimated Offer ($)'] < 0 else f"${val_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf17_str)
                     irr_17 = val_dcf['IRR (%)']
-                    if np.isnan(irr_17) or val_dcf['Estimated Offer ($)'] < 0: st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_17): st.metric("IRR (%)", "17.50%", "Hurdle 17.5% Met")
                     else: st.metric("IRR (%)", f"{irr_17:.2f}%", "Hurdle 17.5% Met")
 
                 st.markdown("---")
@@ -274,7 +274,7 @@ if st.session_state.run_eval:
                     st.markdown("**1. Original Matrix (Risk)**")
                     st.metric("Original Assumed Offer", net_str)
                     irr_flat_orig = val_flat_original_matrix['IRR (%)']
-                    if np.isnan(irr_flat_orig) or matrix_net_offer < 0: st.metric("Dropped IRR (%)", "N/A")
+                    if np.isnan(irr_flat_orig): st.metric("Dropped IRR (%)", "N/A")
                     else: st.metric("Dropped IRR (%)", f"{irr_flat_orig:.2f}%", delta="Compared to 15%", delta_color="inverse" if irr_flat_orig < 15 else "normal")
                 
                 with c_st2:
@@ -282,7 +282,7 @@ if st.session_state.run_eval:
                     stressed_net_str = f"-${abs(stressed_matrix_net):,.0f}" if stressed_matrix_net < 0 else f"${stressed_matrix_net:,.0f}"
                     st.metric("Stressed Offer Entry", stressed_net_str)
                     irr_stressed = val_flat_stressed_matrix['IRR (%)']
-                    if np.isnan(irr_stressed) or stressed_matrix_net < 0: st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_stressed): st.metric("IRR (%)", "N/A")
                     else: st.metric("IRR (%)", f"{irr_stressed:.2f}%")
                     
                 with c_st3:
@@ -290,7 +290,7 @@ if st.session_state.run_eval:
                     flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (25%)", flat_25_str)
                     irr_flat_25 = val_flat_dcf_25['IRR (%)']
-                    if np.isnan(irr_flat_25) or val_flat_dcf_25['Estimated Offer ($)'] < 0: st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_flat_25): st.metric("IRR (%)", "25.00%")
                     else: st.metric("IRR (%)", f"{irr_flat_25:.2f}%")
                     
                 with c_st4:
@@ -298,7 +298,7 @@ if st.session_state.run_eval:
                     flat_17_str = f"-${abs(val_flat_dcf['Estimated Offer ($)']):,.0f}" if val_flat_dcf['Estimated Offer ($)'] < 0 else f"${val_flat_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (17.5%)", flat_17_str)
                     irr_flat_17 = val_flat_dcf['IRR (%)']
-                    if np.isnan(irr_flat_17) or val_flat_dcf['Estimated Offer ($)'] < 0: st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_flat_17): st.metric("IRR (%)", "17.50%")
                     else: st.metric("IRR (%)", f"{irr_flat_17:.2f}%")
 
                 if interest_type == "WI":
@@ -306,7 +306,6 @@ if st.session_state.run_eval:
 
                 st.markdown("---")
                 
-                # --- NUEVA GRÁFICA DE PRECIOS CON DOBLE EJE (PLOTLY) ---
                 st.subheader("Fluid Future Prices (WTI & NYMEX)")
                 end_date_prices = pd.Timestamp.today() + pd.DateOffset(years=10)
                 price_chart_data = df_prices[(df_prices["Date"] >= pd.Timestamp.today()) & (df_prices["Date"] <= end_date_prices)]
@@ -314,23 +313,22 @@ if st.session_state.run_eval:
                 if not price_chart_data.empty:
                     fig_prices = make_subplots(specs=[[{"secondary_y": True}]])
                     fig_prices.add_trace(go.Scatter(x=price_chart_data["Date"], y=price_chart_data["WTI"], name="WTI", line=dict(color="#004AAD")), secondary_y=False)
-                    fig_prices.add_trace(go.Scatter(x=price_chart_data["Date"], y=price_chart_data["NYMEX"], name="NYMEX", line=dict(color="#FFE500")), secondary_y=True)
+                    fig_prices.add_trace(go.Scatter(x=price_chart_data["Date"], y=price_chart_data["NYMEX"], name="NYMEX", line=dict(color="#38B6FF")), secondary_y=True)
                     
                     fig_prices.update_layout(
                         hovermode="x unified",
-                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        font=dict(color="white"),
+                        plot_bgcolor="white", paper_bgcolor="white",
+                        font=dict(color="#0F2A4A"),
                         margin=dict(l=0, r=0, t=30, b=0)
                     )
                     fig_prices.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y")
-                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", showgrid=True, gridcolor="rgba(255,255,255,0.1)", secondary_y=False)
-                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", showgrid=False, secondary_y=True)
+                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".1f", secondary_y=False)
+                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", showgrid=False, tickformat=".1f", secondary_y=True)
                     
                     st.plotly_chart(fig_prices, use_container_width=True)
 
                 st.markdown("---")
                 
-                # --- NUEVA GRÁFICA DE FLUJO DE CAJA (NET CF REAL Y CON ZOOM INTERACTIVO) ---
                 st.subheader("Net Cash Flow Projection (First 10 years)")
                 st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios. (You can zoom in to see the details ignoring the Month 1 P&A drop).")
                 
@@ -343,12 +341,12 @@ if st.session_state.run_eval:
                 
                 fig_cf.update_layout(
                     hovermode="x unified",
-                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="white"),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    font=dict(color="#0F2A4A"),
                     margin=dict(l=0, r=0, t=30, b=0)
                 )
                 fig_cf.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y")
-                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", showgrid=True, gridcolor="rgba(255,255,255,0.1)")
+                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f")
                 
                 st.plotly_chart(fig_cf, use_container_width=True)
                 

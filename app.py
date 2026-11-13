@@ -223,7 +223,6 @@ if st.session_state.run_eval:
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
                 
-                # MENSAJE CORPORATIVO DIRECTO PARA OFERTAS NEGATIVAS
                 if matrix_net_offer < 0:
                     st.warning("⚠️ **Financial Liability Alert**: The estimated P&A costs for the inactive wells exceed the projected revenue of the asset. A negative net offer implies that acquiring this property would require the seller to compensate Community Minerals to cover the impending abandonment liabilities.")
 
@@ -307,7 +306,6 @@ if st.session_state.run_eval:
 
                 st.markdown("---")
                 
-                # GRÁFICA DE PRECIOS CON TEXTOS EN AZUL OSCURO Y LÍNEAS MÁS GRUESAS
                 st.subheader("Fluid Future Prices (WTI & NYMEX)")
                 end_date_prices = pd.Timestamp.today() + pd.DateOffset(years=10)
                 price_chart_data = df_prices[(df_prices["Date"] >= pd.Timestamp.today()) & (df_prices["Date"] <= end_date_prices)]
@@ -320,18 +318,18 @@ if st.session_state.run_eval:
                     fig_prices.update_layout(
                         hovermode="x unified",
                         plot_bgcolor="white", paper_bgcolor="white",
-                        font=dict(color="#0F2A4A", size=12), # Forzamos el texto a azul oscuro
+                        font=dict(color="#0F2A4A", size=12), 
+                        legend=dict(font=dict(color="#0F2A4A")), 
                         margin=dict(l=0, r=0, t=30, b=0)
                     )
-                    fig_prices.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
-                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=False)
-                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", showgrid=False, tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=True)
+                    fig_prices.update_xaxes(showgrid=False, title_text="Time", title_font=dict(color="#0F2A4A"), dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
+                    fig_prices.update_yaxes(title_text="WTI Price (USD/bbl)", title_font=dict(color="#0F2A4A"), showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=False)
+                    fig_prices.update_yaxes(title_text="NYMEX Price (USD/MMBtu)", title_font=dict(color="#0F2A4A"), showgrid=False, tickformat=".1f", tickfont=dict(color="#0F2A4A"), secondary_y=True)
                     
-                    st.plotly_chart(fig_prices, use_container_width=True)
+                    st.plotly_chart(fig_prices, use_container_width=True, theme=None)
 
                 st.markdown("---")
                 
-                # GRÁFICA DE FLUJO DE CAJA CON 5-YEAR EN AMARILLO Y LÍNEAS MÁS GRUESAS
                 st.subheader("Net Cash Flow Projection (First 10 years)")
                 st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios. (You can zoom in to see the details ignoring the Month 1 P&A drop).")
                 
@@ -345,29 +343,70 @@ if st.session_state.run_eval:
                 fig_cf.update_layout(
                     hovermode="x unified",
                     plot_bgcolor="white", paper_bgcolor="white",
-                    font=dict(color="#0F2A4A", size=12), # Forzamos el texto a azul oscuro
+                    font=dict(color="#0F2A4A", size=12),
+                    legend=dict(font=dict(color="#0F2A4A")), 
                     margin=dict(l=0, r=0, t=30, b=0)
                 )
-                fig_cf.update_xaxes(showgrid=False, title_text="Time", dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
-                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f", tickfont=dict(color="#0F2A4A"))
+                fig_cf.update_xaxes(showgrid=False, title_text="Time", title_font=dict(color="#0F2A4A"), dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
+                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", title_font=dict(color="#0F2A4A"), showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f", tickfont=dict(color="#0F2A4A"))
                 
-                st.plotly_chart(fig_cf, use_container_width=True)
+                st.plotly_chart(fig_cf, use_container_width=True, theme=None)
                 
                 st.markdown("---")
                 st.subheader("Underwriter Technical Notes (Copy & Paste)")
                 if wells_summary:
                     str_1y = f"{dec_1yr_input:.2f}% (Auto-detected: {fit_1y['eff_decline']*100:.1f}%)" if fit_1y['success'] else f"{dec_1yr_input:.2f}%"
                     str_5y = f"{dec_5yr_input:.2f}% (Auto-detected: {fit_5y['eff_decline']*100:.1f}%)" if fit_5y['success'] else f"{dec_5yr_input:.2f}%"
+                    gross_val_str = f"-${abs(matrix_gross_offer):,.0f}" if matrix_gross_offer < 0 else f"${matrix_gross_offer:,.0f}"
+                    
                     if wells_summary["total_wells"] == 1:
-                        notes = f"""- Production decline rate for last yr: {str_1y}\n- Production decline rate for last 5 yrs: {str_5y}"""
+                        notes = f"""Write Up
+
+Production will be forecasted using OFM:
+- Production decline rate for last yr = {str_1y}
+- Production decline rate for last 5 yrs = {str_5y}
+
+Based on the {risk_class}, a multiple of {assigned_mult}X will be used to generate an offer:
+Gross offer = {assigned_mult} * ${lycf:,.0f}
+Gross offer = {gross_val_str}
+P&A Deduction = -${abandon_data['total']:,.0f}
+Total Net Matrix Offer = {net_str}"""
                     else:
                         active_prod, tvd_prod = wells_summary['active_oil']['n'], wells_summary['active_oil']['tvd_avg']
                         active_inj, tvd_inj = wells_summary['active_inj']['n'], wells_summary['active_inj']['tvd_avg']
-                        def fmt_tvd(v): return f"{v:,.0f} ft" if not np.isnan(v) else "N/A"
+                        def fmt_tvd(v): return f"{v:,.0f}'" if not np.isnan(v) else "N/A"
                         tmin, tmax = wells_summary['inactive_ta']['tvd_min'], wells_summary['inactive_ta']['tvd_max']
-                        tvd_range = f"{tmin:,.0f} ft - {tmax:,.0f} ft" if not np.isnan(tmin) else "N/A"
-                        notes = f"""- Active wells: {active_prod + active_inj} (Producers: {active_prod} with Avg TVD: {fmt_tvd(tvd_prod)} | Injectors: {active_inj} with Avg TVD: {fmt_tvd(tvd_inj)})\n- Inactive wells: {wells_summary['inactive_ta']['n']}\n- P&A wells: {wells_summary['pa_wells']['n']}\n- Production decline rate for last yr: {str_1y}\n- Production decline rate for last 5 yrs: {str_5y}\n- TVD range for inactive wells: {tvd_range}"""
-                        if wells_summary.get("other_statuses"): notes += f"\n- Other statuses found: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])}"
+                        tvd_range = f"{tmin:,.0f}' - {tmax:,.0f}'" if not np.isnan(tmin) else "N/A"
+                        
+                        if audit_res['tvd_pass'] and audit_res['water_pass']:
+                            audit_p = f"The presence of {active_inj} injection wells with an average TVD ({fmt_tvd(tvd_inj)}), comparable to the producing wells ({fmt_tvd(tvd_prod)}), confirms Zone and TVD Consistency. Furthermore, the Waterflood Signature Identification verifies that the water production volume is substantially and consistently higher than the oil production ({audit_res['water_signature']}). This rigorously confirms the unit is under an active secondary recovery project."
+                        else:
+                            audit_p = "⚠️ The project failed the Waterflood Technical Audit. "
+                            if not audit_res['tvd_pass']: audit_p += "Injection wells do not share a highly similar TVD with producers. "
+                            if not audit_res['water_pass']: audit_p += "Water production volume does not exhibit an active waterflood signature. "
+                            audit_p += "There may be no active waterflood supporting this asset."
+
+                        notes = f"""Write Up
+- Unit located in DI:
+  - {active_prod + active_inj} ACTIVE wells
+    - {active_inj} Injection wells (AVG TVD = {fmt_tvd(tvd_inj)})
+    - {active_prod} Oil producers (AVG TVD = {fmt_tvd(tvd_prod)})
+  - {wells_summary['inactive_ta']['n']} INACTIVE wells
+    - TVD range for inactive wells: {tvd_range}
+  - {wells_summary['pa_wells']['n']} P&A wells
+
+{audit_p}
+
+Therefore, production will be forecasted using OFM:
+- Production decline rate for last yr = {str_1y}
+- Production decline rate for last 5 yrs = {str_5y}
+
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate an offer:
+Gross offer = {assigned_mult} * ${lycf:,.0f}
+Gross offer = {gross_val_str}
+P&A Deduction = -${abandon_data['total']:,.0f}
+Total Net Matrix Offer = {net_str}"""
+                        if wells_summary.get("other_statuses"): notes += f"\n\n- Other statuses found: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])}"
                     st.code(notes, language="markdown")
 
         except Exception as e:

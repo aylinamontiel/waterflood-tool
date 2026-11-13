@@ -361,6 +361,21 @@ if st.session_state.run_eval:
                     
                     gross_val_str = f"-${abs(matrix_gross_offer):,.0f}" if matrix_gross_offer < 0 else f"${matrix_gross_offer:,.0f}"
                     
+                    pa_line_str = f"- P&A Deduction = -${abandon_data['total']:,.0f}\n" if interest_type == "WI" else ""
+                    
+                    all_calculated_offers = [
+                        matrix_net_offer, val_dcf_25['Estimated Offer ($)'], val_dcf['Estimated Offer ($)'],
+                        stressed_matrix_net, val_flat_dcf_25['Estimated Offer ($)'], val_flat_dcf['Estimated Offer ($)']
+                    ]
+                    valid_offers = [o for o in all_calculated_offers if not np.isnan(o)]
+                    min_offer = min(valid_offers) if valid_offers else 0
+                    max_offer = max(valid_offers) if valid_offers else 0
+                    
+                    min_offer_str = f"-${abs(min_offer):,.0f}" if min_offer < 0 else f"${min_offer:,.0f}"
+                    max_offer_str = f"-${abs(max_offer):,.0f}" if max_offer < 0 else f"${max_offer:,.0f}"
+                    
+                    final_range_text = f"\n**Recommended Offer Range (Worst Case to Best Case): {min_offer_str} to {max_offer_str}**"
+
                     if wells_summary["total_wells"] == 1:
                         notes = f"""Write Up
 - Interest Type Evaluated: {interest_type.upper()}
@@ -377,8 +392,7 @@ Since the decline rates represent a {risk_class}, a default multiple of {assigne
 
 Base Valuation Calculation (Strip Pricing):
 - Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
-- P&A Deduction = -${abandon_data['total']:,.0f}
-- Net Matrix Offer = {net_str}
+{pa_line_str}- Net Matrix Offer = {net_str}
 
 Generated Evaluation Offer Range (Strip Pricing):
 - Valuation 1 (Net Matrix Rule @ {assigned_mult}x): {net_str}
@@ -388,7 +402,8 @@ Generated Evaluation Offer Range (Strip Pricing):
 Stress Test Valuations ($50 WTI / $3 NYMEX):
 - Stressed Matrix Offer Entry: {stressed_net_str}
 - Required Offer (Target 25%): {flat_25_str}
-- Required Offer (DCF 17.5%): {flat_17_str}"""
+- Required Offer (DCF 17.5%): {flat_17_str}
+{final_range_text}"""
 
                         if matrix_net_offer < 0:
                             notes += "\n\n⚠️ CONCLUSION: The estimated environmental liability exceeds the asset's gross value, resulting in negative valuation scenarios. Acquiring these wells is NOT recommended."
@@ -435,8 +450,7 @@ Since the decline rates represent a {risk_class}, a default multiple of {assigne
 
 Base Valuation Calculation (Strip Pricing):
 - Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
-- P&A Deduction = -${abandon_data['total']:,.0f}
-- Net Matrix Offer = {net_str}
+{pa_line_str}- Net Matrix Offer = {net_str}
 
 Generated Evaluation Offer Range (Strip Pricing):
 - Valuation 1 (Net Matrix Rule @ {assigned_mult}x): {net_str}
@@ -446,7 +460,8 @@ Generated Evaluation Offer Range (Strip Pricing):
 Stress Test Valuations ($50 WTI / $3 NYMEX):
 - Stressed Matrix Offer Entry: {stressed_net_str}
 - Required Offer (Target 25%): {flat_25_str}
-- Required Offer (DCF 17.5%): {flat_17_str}"""
+- Required Offer (DCF 17.5%): {flat_17_str}
+{final_range_text}"""
                         
                         if wells_summary.get("other_statuses"): notes += f"\n\n- Other statuses found: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])}"
                         

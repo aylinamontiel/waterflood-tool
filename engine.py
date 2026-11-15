@@ -190,10 +190,8 @@ def base_prices(prices: pd.DataFrame, prod: pd.DataFrame, months: int = 12) -> d
 def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil: float = 50.0, stressed_gas: float = 3.0) -> float:
     ob = base_prices_ratios["oil_base"] if base_prices_ratios["oil_base"] > 0 else 1.0
     gb = base_prices_ratios["gas_base"] if base_prices_ratios["gas_base"] > 0 else 1.0
-    # Add the average differentials so this matches build_forecast (flat WTI/NYMEX + diffs)
-    so = stressed_oil + base_prices_ratios.get("oil_diff", 0.0)
-    sg = stressed_gas + base_prices_ratios.get("gas_diff", 0.0)
-    stressed_pf = (base_prices_ratios["oil_share"] * so / ob + (1 - base_prices_ratios["oil_share"]) * sg / gb)
+    # Stress prices ($50 / $3) are treated as the final realized price: no differentials added
+    stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
     return float(lycf * stressed_pf)
 
 def calculate_abandonment(interest_type: str, n_inactive_wells: int, wi_pct: float, tvd_avg: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12, exact_tvd_sum: float = None) -> dict:

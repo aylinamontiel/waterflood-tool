@@ -202,22 +202,26 @@ if st.session_state.run_eval:
                 forecast_5yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 forecast_1yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_1yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 
-                val_dcf = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=None)
-                val_dcf_25 = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=val_dcf["PV 25.0% ($)"])
+                forecast_worst = engine.build_forecast(months=360, lycf=lycf, decline=(worst_decline/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
+                
+                val_dcf = engine.evaluate_cashflow(forecast_worst["Net CF ($)"], forecast_worst["Date"], fixed_offer=None)
+                val_dcf_25 = engine.evaluate_cashflow(forecast_worst["Net CF ($)"], forecast_worst["Date"], fixed_offer=val_dcf["PV 25.0% ($)"])
                 
                 matrix_gross_offer = assigned_mult * lycf
                 matrix_net_offer = matrix_gross_offer - abandon_data['total']
-                val_wf = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=matrix_net_offer)
+                val_wf = engine.evaluate_cashflow(forecast_worst["Net CF ($)"], forecast_worst["Date"], fixed_offer=matrix_net_offer)
                 
                 df_prices_flat = df_prices.copy()
                 df_prices_flat["WTI"] = 50.0
                 df_prices_flat["NYMEX"] = 3.0
+                df_prices_flat["Oil Diff"] = 0.0   # stress prices are final realized prices
+                df_prices_flat["Gas Diff"] = 0.0
                 
                 stressed_lycf = engine.calculate_stressed_lycf(lycf, base_ratios, stressed_oil=50.0, stressed_gas=3.0)
                 stressed_matrix_gross = assigned_mult * stressed_lycf
                 stressed_matrix_net = stressed_matrix_gross - abandon_data['total']
                 
-                forecast_flat = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
+                forecast_flat = engine.build_forecast(months=360, lycf=lycf, decline=(worst_decline/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 val_flat_dcf = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=None)
                 val_flat_dcf_25 = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=val_flat_dcf["PV 25.0% ($)"])
                 val_flat_original_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
@@ -334,7 +338,7 @@ if st.session_state.run_eval:
                 st.markdown("---")
                 
                 st.subheader("Net Cash Flow Projection (First 10 years)")
-                st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios. (You can zoom in to see the details ignoring the Month 1 P&A drop).")
+                st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios (all offers use the higher, i.e. worst-case, decline). (You can zoom in to see the details ignoring the Month 1 P&A drop).")
                 
                 cf_120_5yr = forecast_5yr.head(120)
                 cf_120_1yr = forecast_1yr.head(120)
@@ -391,7 +395,7 @@ Production will be forecasted using OFM:
                             notes += f"\nSince this is a Working Interest (WI) evaluation, environmental liability was accounted for.\n"
 
                         notes += f"""
-Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. The higher (worst-case) of the two decline rates ({worst_decline:.2f}%) is applied to all valuations.
 
 Base Valuation Calculation (Strip Pricing):
 - Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
@@ -449,7 +453,7 @@ Therefore, production will be forecasted using OFM:
                             notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA; wells already P&A are excluded) were accounted for environmental liability.\n"
 
                         notes += f"""
-Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. The higher (worst-case) of the two decline rates ({worst_decline:.2f}%) is applied to all valuations.
 
 Base Valuation Calculation (Strip Pricing):
 - Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}

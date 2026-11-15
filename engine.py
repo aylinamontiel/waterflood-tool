@@ -76,6 +76,11 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     
     info = {"total_wells": len(d)}
     info["total_tvd_sum"] = float(d["tvd"].dropna().sum())
+    # Wells still carrying P&A liability: everything that is NOT already plugged & abandoned
+    liable = d[d["status"] != "PA"]
+    info["liable_wells"] = int(len(liable))
+    info["liable_tvd_sum"] = float(liable["tvd"].dropna().sum())
+    info["liable_missing_tvd"] = int(liable["tvd"].isna().sum())
     
     for key, g in groups.items():
         tvd_clean = g["tvd"].dropna()
@@ -167,17 +172,28 @@ def fit_arps(rates, kind: str = "auto") -> dict:
 def base_prices(prices: pd.DataFrame, prod: pd.DataFrame, months: int = 12) -> dict:
     last = prod["Ym"].max()
     win = prod[prod["Ym"] > last - months].merge(prices[["Ym", "WTI", "NYMEX", "Oil Diff", "Gas Diff"]], on="Ym", how="left")
+    missing = win.loc[win["WTI"].isna() | win["NYMEX"].isna(), "Ym"].astype(str).tolist()
+    if missing:
+        raise ValueError(
+            "The Price Input File does not cover the last 12 months of production "
+            f"(missing prices for: {', '.join(missing)}). Use a price file that includes historical prices."
+        )
     po = win["WTI"] + win["Oil Diff"]
     pg = win["NYMEX"] + win["Gas Diff"]
     oil_rev = float((win["Oil"] * po).sum())
     gas_rev = float((win["Gas"] * pg).sum())
     tot = oil_rev + gas_rev
-    return {"oil_base": float(po.mean()), "gas_base": float(pg.mean()), "oil_share": oil_rev / tot if tot > 0 else 1.0}
+    return {"oil_base": float(po.mean()), "gas_base": float(pg.mean()),
+            "oil_diff": float(win["Oil Diff"].mean()), "gas_diff": float(win["Gas Diff"].mean()),
+            "oil_share": oil_rev / tot if tot > 0 else 1.0}
 
 def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil: float = 50.0, stressed_gas: float = 3.0) -> float:
     ob = base_prices_ratios["oil_base"] if base_prices_ratios["oil_base"] > 0 else 1.0
     gb = base_prices_ratios["gas_base"] if base_prices_ratios["gas_base"] > 0 else 1.0
-    stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
+    # Add the average differentials so this matches build_forecast (flat WTI/NYMEX + diffs)
+    so = stressed_oil + base_prices_ratios.get("oil_diff", 0.0)
+    sg = stressed_gas + base_prices_ratios.get("gas_diff", 0.0)
+    stressed_pf = (base_prices_ratios["oil_share"] * so / ob + (1 - base_prices_ratios["oil_share"]) * sg / gb)
     return float(lycf * stressed_pf)
 
 def calculate_abandonment(interest_type: str, n_inactive_wells: int, wi_pct: float, tvd_avg: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12, exact_tvd_sum: float = None) -> dict:

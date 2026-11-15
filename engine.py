@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import numpy as np
 import pandas as pd
 from scipy.optimize import brentq, curve_fit
@@ -53,9 +54,17 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     try:
         api_col = _find(df_clean, "api14", "api 14", "api", "uwi")
         original_count = len(df_clean)
-        
-        df_clean["API10"] = df_clean[api_col].astype(str).str.replace(r'\D', '', regex=True).str[:10]
-        df_clean["API10"] = df_clean["API10"].replace("", np.nan)
+
+        def _api10(v):
+            t = str(v).strip()
+            if t.lower() in ("", "nan", "none", "nat"): return np.nan
+            t = re.sub(r"\.0+$", "", t)            # Excel float artifacts (e.g. 4212345678000.0)
+            t = re.sub(r"\D", "", t)
+            if not t: return np.nan
+            t = t.zfill(10) if len(t) <= 10 else t.zfill(14)   # restore a lost leading zero
+            return t[:10]
+
+        df_clean["API10"] = df_clean[api_col].map(_api10)
 
         # Prioridad 1: ¿Tiene fecha de primera producción?
         try:
@@ -63,27 +72,31 @@ def summarize_wells(df: pd.DataFrame) -> dict:
             has_prod = df_clean[fp_col].notna() & (df_clean[fp_col].astype(str).str.strip() != "")
         except ValueError:
             has_prod = False
-            
-        # Prioridad 2: ¿Es un pozo ACTIVO?
+
+        # Prioridad 2: ¿Es un pozo ACTIVO? (INACTIVE / NON-PRODUCING no cuentan como activos)
         try:
             status_col = _find(df_clean, "well status", "status")
-            is_active = df_clean[status_col].astype(str).str.upper().str.contains("ACT|PROD")
+            st_up = df_clean[status_col].astype(str).str.upper()
+            is_active = st_up.str.contains("ACT|PROD") & ~st_up.str.contains("INACT|NON")
         except ValueError:
             is_active = False
 
         df_clean["_prio_prod"] = has_prod
         df_clean["_prio_act"] = is_active
-        
-        # Ordenamos: 1) Tiene Prod Date (True primero), 2) Es Activo (True primero), 3) API original (0000 primero)
-        df_clean = df_clean.sort_values(by=["_prio_prod", "_prio_act", api_col], ascending=[False, False, True])
-        
-        # Eliminamos los duplicados por los 10 dígitos, quedándonos con el "ganador"
-        df_clean = df_clean.drop_duplicates(subset=["API10"], keep="first").copy()
-        
+        df_clean["_api_sort"] = df_clean[api_col].astype(str)
+
+        # Ordenamos: 1) Tiene Prod Date, 2) Es Activo, 3) API original (0000 primero)
+        df_clean = df_clean.sort_values(by=["_prio_prod", "_prio_act", "_api_sort"], ascending=[False, False, True], kind="mergesort")
+
+        # Deduplicamos por API10 SOLO los pozos que tienen API; los pozos sin API se conservan todos
+        has_api = df_clean["API10"].notna()
+        deduped = df_clean[has_api].drop_duplicates(subset=["API10"], keep="first")
+        df_clean = pd.concat([deduped, df_clean[~has_api]]).copy()
+
         omitted_count = original_count - len(df_clean)
     except ValueError:
         pass # Si no encuentra columna API, procesa sin filtrar
-    # -------------------------------------------------------------
+    df_clean = df_clean.reset_index(drop=True)
 
     try: ptype_col = df_clean[_find(df_clean, "production type", "type")].astype(str).str.upper()
     except ValueError: ptype_col = pd.Series(["UNKNOWN"] * len(df_clean))
@@ -115,6 +128,11 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     
     info = {"total_wells": len(d), "omitted_sts": omitted_count}
     info["total_tvd_sum"] = float(d["tvd"].dropna().sum())
+    # Wells still carrying P&A liability: everything that is NOT already plugged & abandoned
+    liable = d[d["status"] != "PA"]
+    info["liable_wells"] = int(len(liable))
+    info["liable_tvd_sum"] = float(liable["tvd"].dropna().sum())
+    info["liable_missing_tvd"] = int(liable["tvd"].isna().sum())
     
     for key, g in groups.items():
         tvd_clean = g["tvd"].dropna()
@@ -206,6 +224,12 @@ def fit_arps(rates, kind: str = "auto") -> dict:
 def base_prices(prices: pd.DataFrame, prod: pd.DataFrame, months: int = 12) -> dict:
     last = prod["Ym"].max()
     win = prod[prod["Ym"] > last - months].merge(prices[["Ym", "WTI", "NYMEX", "Oil Diff", "Gas Diff"]], on="Ym", how="left")
+    missing = win.loc[win["WTI"].isna() | win["NYMEX"].isna(), "Ym"].astype(str).tolist()
+    if missing:
+        raise ValueError(
+            "The Price Input File does not cover the last 12 months of production "
+            f"(missing prices for: {', '.join(missing)}). Use a price file that includes historical prices."
+        )
     po = win["WTI"] + win["Oil Diff"]
     pg = win["NYMEX"] + win["Gas Diff"]
     oil_rev = float((win["Oil"] * po).sum())

@@ -115,7 +115,7 @@ else:
         prod_file = st.file_uploader("1. Historical Production", type=["csv", "xlsx"], key="file_prod")
         st.caption("Downloaded from Drilling Info")
     with col2:
-        price_file = st.file_uploader("2. Price Input File", type=["csv", "xlsx", "xls"], key="file_price")
+        price_file = st.file_uploader("2. Price Input File", type=["csv", "xlsx"], key="file_price")
         st.caption("Downloaded from [Template folder](https://drive.google.com/drive/folders/1XSFTshnnQ-n66_x1SSceVkgHrKLr2dty?usp=drive_link)")
     with col3:
         wells_file = st.file_uploader("3. Wells Table", type=["csv", "xlsx"], key="file_wells")
@@ -154,13 +154,16 @@ if st.session_state.run_eval:
                 if wells_file.name.lower().endswith('.csv'): df_wells = pd.read_csv(wells_file)
                 else: df_wells = pd.read_excel(wells_file, engine='openpyxl')
                 wells_summary = engine.summarize_wells(df_wells)
-                total_wells = wells_summary.get("total_wells", 0)
-                abandon_data = engine.calculate_abandonment(interest_type=interest_type, n_inactive_wells=total_wells, wi_pct=wi_pct, tvd_avg=7500.0, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=wells_summary.get("total_tvd_sum", 0.0))
+                total_wells = wells_summary.get("liable_wells", 0)
+                n_plugged = wells_summary["pa_wells"]["n"]
+                abandon_data = engine.calculate_abandonment(interest_type=interest_type, n_inactive_wells=total_wells, wi_pct=wi_pct, tvd_avg=7500.0, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=wells_summary.get("liable_tvd_sum", 0.0))
                 
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
                 st.subheader("Distress Scenario Results")
-                st.error(f"Negative CF Rule Applied: Total P&A liability calculated for ALL {total_wells} wells (Active + Inactive).")
+                st.error(f"Negative CF Rule Applied: Total P&A liability calculated for ALL {total_wells} wells (Active + Inactive); {n_plugged} already plugged (P&A) wells are excluded.")
+                if wells_summary.get("liable_missing_tvd", 0) > 0:
+                    st.warning(f"{wells_summary['liable_missing_tvd']} well(s) have no TVD and are not included in the liability total.")
                 col_d1, col_d2 = st.columns(2)
                 col_d1.metric("Baseline LYCF", f"-${abs(lycf):,.0f}" if lycf < 0 else f"${lycf:,.0f}")
                 col_d2.metric("Total P&A Liability Deduction", f"-${abandon_data['total']:,.0f}")
@@ -254,7 +257,7 @@ if st.session_state.run_eval:
                     val_dcf_25_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf_25_str)
                     irr_25 = val_dcf_25['IRR (%)']
-                    if np.isnan(irr_25): st.metric("IRR (%)", "25.00%", "Target 25% Met")
+                    if np.isnan(irr_25): st.metric("IRR (%)", "N/A")
                     else: st.metric("IRR (%)", f"{irr_25:.2f}%", "Target 25% Met")
                     
                 with col_o3:
@@ -262,7 +265,7 @@ if st.session_state.run_eval:
                     val_dcf17_str = f"-${abs(val_dcf['Estimated Offer ($)']):,.0f}" if val_dcf['Estimated Offer ($)'] < 0 else f"${val_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf17_str)
                     irr_17 = val_dcf['IRR (%)']
-                    if np.isnan(irr_17): st.metric("IRR (%)", "17.50%", "Hurdle 17.5% Met")
+                    if np.isnan(irr_17): st.metric("IRR (%)", "N/A")
                     else: st.metric("IRR (%)", f"{irr_17:.2f}%", "Hurdle 17.5% Met")
 
                 st.markdown("---")
@@ -290,7 +293,7 @@ if st.session_state.run_eval:
                     flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (25%)", flat_25_str)
                     irr_flat_25 = val_flat_dcf_25['IRR (%)']
-                    if np.isnan(irr_flat_25): st.metric("IRR (%)", "25.00%")
+                    if np.isnan(irr_flat_25): st.metric("IRR (%)", "N/A")
                     else: st.metric("IRR (%)", f"{irr_flat_25:.2f}%")
                     
                 with c_st4:
@@ -298,7 +301,7 @@ if st.session_state.run_eval:
                     flat_17_str = f"-${abs(val_flat_dcf['Estimated Offer ($)']):,.0f}" if val_flat_dcf['Estimated Offer ($)'] < 0 else f"${val_flat_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (17.5%)", flat_17_str)
                     irr_flat_17 = val_flat_dcf['IRR (%)']
-                    if np.isnan(irr_flat_17): st.metric("IRR (%)", "17.50%")
+                    if np.isnan(irr_flat_17): st.metric("IRR (%)", "N/A")
                     else: st.metric("IRR (%)", f"{irr_flat_17:.2f}%")
 
                 if interest_type == "WI":
@@ -443,7 +446,7 @@ Therefore, production will be forecasted using OFM:
 - Production decline rate for last 5 yrs = {str_5y}
 """
                         if interest_type == "WI":
-                            notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA/P&A) were accounted for environmental liability.\n"
+                            notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA; wells already P&A are excluded) were accounted for environmental liability.\n"
 
                         notes += f"""
 Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 

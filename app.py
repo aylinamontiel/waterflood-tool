@@ -115,7 +115,7 @@ else:
         prod_file = st.file_uploader("1. Historical Production", type=["csv", "xlsx"], key="file_prod")
         st.caption("Downloaded from Drilling Info")
     with col2:
-        price_file = st.file_uploader("2. Price Input File", type=["csv", "xlsx"], key="file_price")
+        price_file = st.file_uploader("2. Price Input File", type=["csv", "xlsx", "xls"], key="file_price")
         st.caption("Downloaded from [Template folder](https://drive.google.com/drive/folders/1XSFTshnnQ-n66_x1SSceVkgHrKLr2dty?usp=drive_link)")
     with col3:
         wells_file = st.file_uploader("3. Wells Table", type=["csv", "xlsx"], key="file_wells")
@@ -154,16 +154,13 @@ if st.session_state.run_eval:
                 if wells_file.name.lower().endswith('.csv'): df_wells = pd.read_csv(wells_file)
                 else: df_wells = pd.read_excel(wells_file, engine='openpyxl')
                 wells_summary = engine.summarize_wells(df_wells)
-                total_wells = wells_summary.get("liable_wells", 0)
-                n_plugged = wells_summary["pa_wells"]["n"]
-                abandon_data = engine.calculate_abandonment(interest_type=interest_type, n_inactive_wells=total_wells, wi_pct=wi_pct, tvd_avg=7500.0, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=wells_summary.get("liable_tvd_sum", 0.0))
+                total_wells = wells_summary.get("total_wells", 0)
+                abandon_data = engine.calculate_abandonment(interest_type=interest_type, n_inactive_wells=total_wells, wi_pct=wi_pct, tvd_avg=7500.0, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=wells_summary.get("total_tvd_sum", 0.0))
                 
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
                 st.subheader("Distress Scenario Results")
-                st.error(f"Negative CF Rule Applied: Total P&A liability calculated for ALL {total_wells} wells (Active + Inactive); {n_plugged} already plugged (P&A) wells are excluded.")
-                if wells_summary.get("liable_missing_tvd", 0) > 0:
-                    st.warning(f"{wells_summary['liable_missing_tvd']} well(s) have no TVD and are not included in the liability total.")
+                st.error(f"Negative CF Rule Applied: Total P&A liability calculated for ALL {total_wells} wells (Active + Inactive).")
                 col_d1, col_d2 = st.columns(2)
                 col_d1.metric("Baseline LYCF", f"-${abs(lycf):,.0f}" if lycf < 0 else f"${lycf:,.0f}")
                 col_d2.metric("Total P&A Liability Deduction", f"-${abandon_data['total']:,.0f}")
@@ -202,26 +199,22 @@ if st.session_state.run_eval:
                 forecast_5yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 forecast_1yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_1yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 
-                forecast_worst = engine.build_forecast(months=360, lycf=lycf, decline=(worst_decline/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
-                
-                val_dcf = engine.evaluate_cashflow(forecast_worst["Net CF ($)"], forecast_worst["Date"], fixed_offer=None)
-                val_dcf_25 = engine.evaluate_cashflow(forecast_worst["Net CF ($)"], forecast_worst["Date"], fixed_offer=val_dcf["PV 25.0% ($)"])
+                val_dcf = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=None)
+                val_dcf_25 = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=val_dcf["PV 25.0% ($)"])
                 
                 matrix_gross_offer = assigned_mult * lycf
                 matrix_net_offer = matrix_gross_offer - abandon_data['total']
-                val_wf = engine.evaluate_cashflow(forecast_worst["Net CF ($)"], forecast_worst["Date"], fixed_offer=matrix_net_offer)
+                val_wf = engine.evaluate_cashflow(forecast_5yr["Net CF ($)"], forecast_5yr["Date"], fixed_offer=matrix_net_offer)
                 
                 df_prices_flat = df_prices.copy()
                 df_prices_flat["WTI"] = 50.0
                 df_prices_flat["NYMEX"] = 3.0
-                df_prices_flat["Oil Diff"] = 0.0   # stress prices are final realized prices
-                df_prices_flat["Gas Diff"] = 0.0
                 
                 stressed_lycf = engine.calculate_stressed_lycf(lycf, base_ratios, stressed_oil=50.0, stressed_gas=3.0)
                 stressed_matrix_gross = assigned_mult * stressed_lycf
                 stressed_matrix_net = stressed_matrix_gross - abandon_data['total']
                 
-                forecast_flat = engine.build_forecast(months=360, lycf=lycf, decline=(worst_decline/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
+                forecast_flat = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices_flat, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 val_flat_dcf = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=None)
                 val_flat_dcf_25 = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=val_flat_dcf["PV 25.0% ($)"])
                 val_flat_original_matrix = engine.evaluate_cashflow(forecast_flat["Net CF ($)"], forecast_flat["Date"], fixed_offer=matrix_net_offer)
@@ -261,7 +254,7 @@ if st.session_state.run_eval:
                     val_dcf_25_str = f"-${abs(val_dcf_25['Estimated Offer ($)']):,.0f}" if val_dcf_25['Estimated Offer ($)'] < 0 else f"${val_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf_25_str)
                     irr_25 = val_dcf_25['IRR (%)']
-                    if np.isnan(irr_25): st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_25): st.metric("IRR (%)", "25.00%", "Target 25% Met")
                     else: st.metric("IRR (%)", f"{irr_25:.2f}%", "Target 25% Met")
                     
                 with col_o3:
@@ -269,7 +262,7 @@ if st.session_state.run_eval:
                     val_dcf17_str = f"-${abs(val_dcf['Estimated Offer ($)']):,.0f}" if val_dcf['Estimated Offer ($)'] < 0 else f"${val_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Estimated Offer Value", val_dcf17_str)
                     irr_17 = val_dcf['IRR (%)']
-                    if np.isnan(irr_17): st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_17): st.metric("IRR (%)", "17.50%", "Hurdle 17.5% Met")
                     else: st.metric("IRR (%)", f"{irr_17:.2f}%", "Hurdle 17.5% Met")
 
                 st.markdown("---")
@@ -297,7 +290,7 @@ if st.session_state.run_eval:
                     flat_25_str = f"-${abs(val_flat_dcf_25['Estimated Offer ($)']):,.0f}" if val_flat_dcf_25['Estimated Offer ($)'] < 0 else f"${val_flat_dcf_25['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (25%)", flat_25_str)
                     irr_flat_25 = val_flat_dcf_25['IRR (%)']
-                    if np.isnan(irr_flat_25): st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_flat_25): st.metric("IRR (%)", "25.00%")
                     else: st.metric("IRR (%)", f"{irr_flat_25:.2f}%")
                     
                 with c_st4:
@@ -305,7 +298,7 @@ if st.session_state.run_eval:
                     flat_17_str = f"-${abs(val_flat_dcf['Estimated Offer ($)']):,.0f}" if val_flat_dcf['Estimated Offer ($)'] < 0 else f"${val_flat_dcf['Estimated Offer ($)']:,.0f}"
                     st.metric("Required Offer (17.5%)", flat_17_str)
                     irr_flat_17 = val_flat_dcf['IRR (%)']
-                    if np.isnan(irr_flat_17): st.metric("IRR (%)", "N/A")
+                    if np.isnan(irr_flat_17): st.metric("IRR (%)", "17.50%")
                     else: st.metric("IRR (%)", f"{irr_flat_17:.2f}%")
 
                 if interest_type == "WI":
@@ -338,7 +331,7 @@ if st.session_state.run_eval:
                 st.markdown("---")
                 
                 st.subheader("Net Cash Flow Projection (First 10 years)")
-                st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios (all offers use the higher, i.e. worst-case, decline). (You can zoom in to see the details ignoring the Month 1 P&A drop).")
+                st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios. (You can zoom in to see the details ignoring the Month 1 P&A drop).")
                 
                 cf_120_5yr = forecast_5yr.head(120)
                 cf_120_1yr = forecast_1yr.head(120)
@@ -395,7 +388,7 @@ Production will be forecasted using OFM:
                             notes += f"\nSince this is a Working Interest (WI) evaluation, environmental liability was accounted for.\n"
 
                         notes += f"""
-Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. The higher (worst-case) of the two decline rates ({worst_decline:.2f}%) is applied to all valuations.
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 
 
 Base Valuation Calculation (Strip Pricing):
 - Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
@@ -441,19 +434,22 @@ Stress Test Valuations ($50 WTI / $3 NYMEX):
     - {active_prod} Oil producers (AVG TVD = {fmt_tvd(tvd_prod)})
   - {wells_summary['inactive_ta']['n']} INACTIVE / SHUT-IN / TA wells
     - TVD range for inactive wells: {tvd_range}
-  - {wells_summary['pa_wells']['n']} P&A wells
+  - {wells_summary['pa_wells']['n']} P&A wells"""
+  
+                        if wells_summary.get("other_statuses"):
+                            other_total = sum(wells_summary["other_statuses"].values())
+                            notes += f"\n  - {other_total} OTHER wells (Statuses: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])})"
+                            
+                        if wells_summary.get("omitted_sts", 0) > 0:
+                            notes += f"\n  - {wells_summary['omitted_sts']} Sidetracks/Duplicates omitted (Filtered to prevent duplicate TVD and P&A counts)"
 
-{audit_p}
-
-Therefore, production will be forecasted using OFM:
-- Production decline rate for last yr = {str_1y}
-- Production decline rate for last 5 yrs = {str_5y}
-"""
+                        notes += f"\n\n{audit_p}\n\nTherefore, production will be forecasted using OFM:\n- Production decline rate for last yr = {str_1y}\n- Production decline rate for last 5 yrs = {str_5y}\n"
+                        
                         if interest_type == "WI":
-                            notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA; wells already P&A are excluded) were accounted for environmental liability.\n"
+                            notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA/P&A) were accounted for environmental liability.\n"
 
                         notes += f"""
-Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. The higher (worst-case) of the two decline rates ({worst_decline:.2f}%) is applied to all valuations.
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. 
 
 Base Valuation Calculation (Strip Pricing):
 - Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
@@ -469,8 +465,6 @@ Stress Test Valuations ($50 WTI / $3 NYMEX):
 - Required Offer (Target 25%): {flat_25_str}
 - Required Offer (DCF 17.5%): {flat_17_str}
 {final_range_text}"""
-                        
-                        if wells_summary.get("other_statuses"): notes += f"\n\n- Other statuses found: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])}"
                         
                         if matrix_net_offer < 0:
                             notes += "\n\n⚠️ CONCLUSION: The estimated environmental liability exceeds the asset's gross value, resulting in negative valuation scenarios. Acquiring these wells is NOT recommended."

@@ -43,7 +43,7 @@ def clean_production(df: pd.DataFrame) -> pd.DataFrame:
             
     out = out.dropna(subset=["Date", "Oil"]).sort_values("Date").reset_index(drop=True)
     out["Ym"] = out["Date"].dt.to_period("M")
-    # DI exports can have several rows per month (e.g. one per well): aggregate to one row per month
+    # Agrupa por mes para evitar distorsiones de múltiples filas por pozo
     out = (out.groupby("Ym", as_index=False)
               .agg({"Date": "min", "Oil": "sum", "Gas": "sum", "Water": "sum", "Well Count": "max"})
               .sort_values("Date").reset_index(drop=True))
@@ -62,22 +62,20 @@ def summarize_wells(df: pd.DataFrame) -> dict:
         def _api10(v):
             t = str(v).strip()
             if t.lower() in ("", "nan", "none", "nat"): return np.nan
-            t = re.sub(r"\.0+$", "", t)            # Excel float artifacts (e.g. 4212345678000.0)
+            t = re.sub(r"\.0+$", "", t)            
             t = re.sub(r"\D", "", t)
             if not t: return np.nan
-            t = t.zfill(10) if len(t) <= 10 else t.zfill(14)   # restore a lost leading zero
+            t = t.zfill(10) if len(t) <= 10 else t.zfill(14)   
             return t[:10]
 
         df_clean["API10"] = df_clean[api_col].map(_api10)
 
-        # Prioridad 1: ¿Tiene fecha de primera producción?
         try:
             fp_col = _find(df_clean, "first prod", "first prod date")
             has_prod = df_clean[fp_col].notna() & (df_clean[fp_col].astype(str).str.strip() != "")
         except ValueError:
             has_prod = False
 
-        # Prioridad 2: ¿Es un pozo ACTIVO? (INACTIVE / NON-PRODUCING no cuentan como activos)
         try:
             status_col = _find(df_clean, "well status", "status")
             st_up = df_clean[status_col].astype(str).str.upper()
@@ -89,21 +87,19 @@ def summarize_wells(df: pd.DataFrame) -> dict:
         df_clean["_prio_act"] = is_active
         df_clean["_api_sort"] = df_clean[api_col].astype(str)
 
-        # Ordenamos: 1) Tiene Prod Date, 2) Es Activo, 3) API original (0000 primero)
         df_clean = df_clean.sort_values(by=["_prio_prod", "_prio_act", "_api_sort"], ascending=[False, False, True], kind="mergesort")
 
-        # Deduplicamos por API10 SOLO los pozos que tienen API; los pozos sin API se conservan todos
         has_api = df_clean["API10"].notna()
         deduped = df_clean[has_api].drop_duplicates(subset=["API10"], keep="first")
         df_clean = pd.concat([deduped, df_clean[~has_api]]).copy()
 
         omitted_count = original_count - len(df_clean)
     except ValueError:
-        pass # Si no encuentra columna API, procesa sin filtrar
+        pass 
     df_clean = df_clean.reset_index(drop=True)
 
     try: ptype_col = df_clean[_find(df_clean, "production type", "type")].astype(str).str.upper()
-    except ValueError: ptype_col = pd.Series(["OIL"] * len(df_clean))  # no type column: cannot split wells by type
+    except ValueError: ptype_col = pd.Series(["OIL"] * len(df_clean))  
     
     try: raw_status = df_clean[_find(df_clean, "well status", "status")].astype(str).str.upper()
     except ValueError: raw_status = pd.Series(["UNKNOWN"] * len(df_clean))
@@ -126,7 +122,6 @@ def summarize_wells(df: pd.DataFrame) -> dict:
 
     def _map_status(s):
         t = re.sub(r"\s+", " ", str(s).upper().replace("_", " ")).strip()
-        # Inactive first, so 'TEMPORARILY ABANDONED' is never read as P&A
         if re.search(r"TEMP\w*\.?\s*ABAND|\bTA\b|INACTIVE|SHUT[\s-]?IN|\bSI\b|NON[\s-]?PRODUC|\bTEMP", t): return "INACTIVE"
         if re.search(r"\bP\s*[&/]\s*A\b|\bPA\b|PLUGGED|ABANDON", t): return "PA"
         if re.search(r"\bACTIVE\b|PRODUC|INJECT", t): return "ACTIVE"
@@ -143,7 +138,7 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     
     info = {"total_wells": len(d), "omitted_sts": omitted_count}
     info["total_tvd_sum"] = float(d["tvd"].dropna().sum())
-    # Wells still carrying P&A liability: everything that is NOT already plugged & abandoned
+    
     liable = d[d["status"] != "PA"]
     info["liable_wells"] = int(len(liable))
     info["liable_tvd_sum"] = float(liable["tvd"].dropna().sum())
@@ -235,7 +230,7 @@ def fit_arps(rates, kind: str = "auto") -> dict:
             p, _ = curve_fit(f, t, q, p0=p0, bounds=(lo, hi), maxfev=50000)
             sse = float(np.sum((q - f(t, *p)) ** 2))
             cands[name] = {"qi": float(p[0]), "D": float(p[1]), "b": float(p[2]) if k == 3 else b, "sse": sse, "k": k}
-        except (RuntimeError, ValueError, TypeError, FloatingPointError, np.linalg.LinAlgError): pass  # this model could not be fitted
+        except (RuntimeError, ValueError, TypeError, FloatingPointError, np.linalg.LinAlgError): pass 
 
     _try("exp", lambda t, qi, D: _arps_q(t, qi, D, 0.0), [qi0, np.clip(D0, dmin, 20)], [0, dmin], [qmax, 20], 0.0, 2)
     _try("harm", lambda t, qi, D: _arps_q(t, qi, D, 1.0), [qi0, np.clip(D0, dmin, 20)], [0, dmin], [qmax, 20], 1.0, 2)
@@ -273,10 +268,12 @@ def calculate_abandonment(interest_type: str, n_inactive_wells: int, wi_pct: flo
     if interest_type.upper() in ["NRI", "ORRI"]:
         return {"per_well": 0.0, "total": 0.0, "schedule": np.zeros(months)}
     
+    tvd_calc = 0.0 if pd.isna(tvd_avg) else tvd_avg
+    
     if exact_tvd_sum is not None and exact_tvd_sum > 0:
         total = exact_tvd_sum * wi_pct * cost_per_ft
     else:
-        total = n_inactive_wells * tvd_avg * wi_pct * cost_per_ft
+        total = n_inactive_wells * tvd_calc * wi_pct * cost_per_ft
         
     per_well = total / n_inactive_wells if n_inactive_wells > 0 else 0.0
     sched = np.zeros(months)
@@ -292,7 +289,7 @@ def build_forecast(*, months: int, lycf: float, decline: float, prices: pd.DataF
     lag = (idx[0] - last_prod).n - 1  
     m = np.arange(1, months + 1) + max(lag, 0)
     
-    decline = float(np.clip(decline, 0.0, 0.99))  # guard against negative or 100%+ inputs
+    decline = float(np.clip(decline, 0.0, 0.99))  
     vol = (1.0 - decline) ** (m / 12.0)
 
     p = prices.set_index("Ym")
@@ -328,7 +325,6 @@ def evaluate_cashflow(cf_neto: pd.Series, dates, fixed_offer: float = None, gros
     offer_date = d.iloc[0] - pd.DateOffset(months=1)
     t = ((d - offer_date).dt.days / 365.0).to_numpy()
     
-    # Annual CF Multiple uses GROSS year-1 cash flow (before P&A) so a month-1 P&A payment does not distort it
     g = np.asarray(gross_cf, float) if gross_cf is not None else cf
     year1_cf = float(cf[:12].sum())
     year1_gross = float(g[:12].sum())

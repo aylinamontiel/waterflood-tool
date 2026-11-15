@@ -46,14 +46,53 @@ def clean_production(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def summarize_wells(df: pd.DataFrame) -> dict:
-    try: ptype_col = df[_find(df, "production type", "type")].astype(str).str.upper()
-    except ValueError: ptype_col = pd.Series(["UNKNOWN"] * len(df))
+    omitted_count = 0
+    df_clean = df.copy()
+
+    # --- FILTRO AUTOMÁTICO DE DUPLICADOS (STs) CON JERARQUÍA ---
+    try:
+        api_col = _find(df_clean, "api14", "api 14", "api", "uwi")
+        original_count = len(df_clean)
+        
+        df_clean["API10"] = df_clean[api_col].astype(str).str.replace(r'\D', '', regex=True).str[:10]
+        df_clean["API10"] = df_clean["API10"].replace("", np.nan)
+
+        # Prioridad 1: ¿Tiene fecha de primera producción?
+        try:
+            fp_col = _find(df_clean, "first prod", "first prod date")
+            has_prod = df_clean[fp_col].notna() & (df_clean[fp_col].astype(str).str.strip() != "")
+        except ValueError:
+            has_prod = False
+            
+        # Prioridad 2: ¿Es un pozo ACTIVO?
+        try:
+            status_col = _find(df_clean, "well status", "status")
+            is_active = df_clean[status_col].astype(str).str.upper().str.contains("ACT|PROD")
+        except ValueError:
+            is_active = False
+
+        df_clean["_prio_prod"] = has_prod
+        df_clean["_prio_act"] = is_active
+        
+        # Ordenamos: 1) Tiene Prod Date (True primero), 2) Es Activo (True primero), 3) API original (0000 primero)
+        df_clean = df_clean.sort_values(by=["_prio_prod", "_prio_act", api_col], ascending=[False, False, True])
+        
+        # Eliminamos los duplicados por los 10 dígitos, quedándonos con el "ganador"
+        df_clean = df_clean.drop_duplicates(subset=["API10"], keep="first").copy()
+        
+        omitted_count = original_count - len(df_clean)
+    except ValueError:
+        pass # Si no encuentra columna API, procesa sin filtrar
+    # -------------------------------------------------------------
+
+    try: ptype_col = df_clean[_find(df_clean, "production type", "type")].astype(str).str.upper()
+    except ValueError: ptype_col = pd.Series(["UNKNOWN"] * len(df_clean))
     
-    try: raw_status = df[_find(df, "well status", "status")].astype(str).str.upper()
-    except ValueError: raw_status = pd.Series(["UNKNOWN"] * len(df))
+    try: raw_status = df_clean[_find(df_clean, "well status", "status")].astype(str).str.upper()
+    except ValueError: raw_status = pd.Series(["UNKNOWN"] * len(df_clean))
     
-    try: tvd_col = pd.to_numeric(df[_find(df, "true vertical depth", "tvd")], errors="coerce")
-    except ValueError: tvd_col = pd.Series([np.nan] * len(df))
+    try: tvd_col = pd.to_numeric(df_clean[_find(df_clean, "true vertical depth", "tvd")], errors="coerce")
+    except ValueError: tvd_col = pd.Series([np.nan] * len(df_clean))
 
     d = pd.DataFrame({"ptype": ptype_col, "raw_status": raw_status, "tvd": tvd_col})
     d["inj"] = d["ptype"].str.contains("INJ")
@@ -74,13 +113,8 @@ def summarize_wells(df: pd.DataFrame) -> dict:
         "pa_wells": d[d.status == "PA"]
     }
     
-    info = {"total_wells": len(d)}
+    info = {"total_wells": len(d), "omitted_sts": omitted_count}
     info["total_tvd_sum"] = float(d["tvd"].dropna().sum())
-    # Wells still carrying P&A liability: everything that is NOT already plugged & abandoned
-    liable = d[d["status"] != "PA"]
-    info["liable_wells"] = int(len(liable))
-    info["liable_tvd_sum"] = float(liable["tvd"].dropna().sum())
-    info["liable_missing_tvd"] = int(liable["tvd"].isna().sum())
     
     for key, g in groups.items():
         tvd_clean = g["tvd"].dropna()
@@ -172,25 +206,16 @@ def fit_arps(rates, kind: str = "auto") -> dict:
 def base_prices(prices: pd.DataFrame, prod: pd.DataFrame, months: int = 12) -> dict:
     last = prod["Ym"].max()
     win = prod[prod["Ym"] > last - months].merge(prices[["Ym", "WTI", "NYMEX", "Oil Diff", "Gas Diff"]], on="Ym", how="left")
-    missing = win.loc[win["WTI"].isna() | win["NYMEX"].isna(), "Ym"].astype(str).tolist()
-    if missing:
-        raise ValueError(
-            "The Price Input File does not cover the last 12 months of production "
-            f"(missing prices for: {', '.join(missing)}). Use a price file that includes historical prices."
-        )
     po = win["WTI"] + win["Oil Diff"]
     pg = win["NYMEX"] + win["Gas Diff"]
     oil_rev = float((win["Oil"] * po).sum())
     gas_rev = float((win["Gas"] * pg).sum())
     tot = oil_rev + gas_rev
-    return {"oil_base": float(po.mean()), "gas_base": float(pg.mean()),
-            "oil_diff": float(win["Oil Diff"].mean()), "gas_diff": float(win["Gas Diff"].mean()),
-            "oil_share": oil_rev / tot if tot > 0 else 1.0}
+    return {"oil_base": float(po.mean()), "gas_base": float(pg.mean()), "oil_share": oil_rev / tot if tot > 0 else 1.0}
 
 def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil: float = 50.0, stressed_gas: float = 3.0) -> float:
     ob = base_prices_ratios["oil_base"] if base_prices_ratios["oil_base"] > 0 else 1.0
     gb = base_prices_ratios["gas_base"] if base_prices_ratios["gas_base"] > 0 else 1.0
-    # Stress prices ($50 / $3) are treated as the final realized price: no differentials added
     stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
     return float(lycf * stressed_pf)
 

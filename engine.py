@@ -53,6 +53,7 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     omitted_count = 0
     df_clean = df.copy()
 
+    # --- FILTRO AUTOMÁTICO DE DUPLICADOS (STs) CON JERARQUÍA ---
     try:
         api_col = _find(df_clean, "api14", "api 14", "api", "uwi")
         original_count = len(df_clean)
@@ -104,8 +105,15 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     
     try: tvd_col = pd.to_numeric(df_clean[_find(df_clean, "true vertical depth", "tvd")], errors="coerce")
     except ValueError: tvd_col = pd.Series([np.nan] * len(df_clean))
+    
+    # Extraer columna WI si existe
+    try:
+        wi_col = _find(df_clean, "working interest", "wi", "wi decimal", "wi %")
+        wi_series = pd.to_numeric(df_clean[wi_col], errors="coerce")
+    except ValueError:
+        wi_series = pd.Series([np.nan] * len(df_clean))
 
-    d = pd.DataFrame({"ptype": ptype_col, "raw_status": raw_status, "tvd": tvd_col})
+    d = pd.DataFrame({"ptype": ptype_col, "raw_status": raw_status, "tvd": tvd_col, "wi": wi_series})
 
     def _map_type(s):
         t = str(s).upper()
@@ -141,6 +149,10 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     info["liable_wells"] = int(len(liable))
     info["liable_tvd_sum"] = float(liable["tvd"].dropna().sum())
     info["liable_missing_tvd"] = int(liable["tvd"].isna().sum())
+    
+    # Exportar datos precisos pozo a pozo para calcular P&A
+    info["liable_wells_data"] = {"tvd": liable["tvd"].tolist(), "wi": liable["wi"].tolist()}
+    info["inactive_wells_data"] = {"tvd": groups["inactive_ta"]["tvd"].tolist(), "wi": groups["inactive_ta"]["wi"].tolist()}
     
     for key, g in groups.items():
         tvd_clean = g["tvd"].dropna()
@@ -262,18 +274,26 @@ def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil:
     stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
     return float(lycf * stressed_pf)
 
-def calculate_abandonment(interest_type: str, n_inactive_wells: int, wi_pct: float, tvd_avg: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12, exact_tvd_sum: float = None) -> dict:
+def calculate_abandonment(interest_type: str, wells_data: dict, n_override: int, default_wi: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12) -> dict:
     if interest_type.upper() in ["NRI", "ORRI"]:
         return {"per_well": 0.0, "total": 0.0, "schedule": np.zeros(months)}
     
-    tvd_calc = 0.0 if pd.isna(tvd_avg) else tvd_avg
-    
-    if exact_tvd_sum is not None and exact_tvd_sum > 0:
-        total = exact_tvd_sum * wi_pct * cost_per_ft
+    total = 0.0
+    if n_override > 0:
+        # Modo Override: se utiliza el promedio global porque no sabemos qué pozos exactos está inyectando el usuario
+        tvd_list = [v for v in wells_data.get("tvd", []) if not pd.isna(v)]
+        tvd_avg = sum(tvd_list)/len(tvd_list) if tvd_list else 0.0
+        total = n_override * tvd_avg * default_wi * cost_per_ft
+        n_wells = n_override
     else:
-        total = n_inactive_wells * tvd_calc * wi_pct * cost_per_ft
-        
-    per_well = total / n_inactive_wells if n_inactive_wells > 0 else 0.0
+        # Cálculo pozo por pozo con sus propios TVD y WI (falla al WI global si no hay dato local)
+        n_wells = len(wells_data.get("tvd", []))
+        for tvd, wi in zip(wells_data.get("tvd", []), wells_data.get("wi", [])):
+            tvd_val = 0.0 if pd.isna(tvd) else tvd
+            wi_val = default_wi if pd.isna(wi) else wi
+            total += tvd_val * wi_val * cost_per_ft
+            
+    per_well = total / n_wells if n_wells > 0 else 0.0
     sched = np.zeros(months)
     if mode == "Lump Sum":
         sched[0] = total

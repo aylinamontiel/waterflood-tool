@@ -43,7 +43,6 @@ def clean_production(df: pd.DataFrame) -> pd.DataFrame:
             
     out = out.dropna(subset=["Date", "Oil"]).sort_values("Date").reset_index(drop=True)
     out["Ym"] = out["Date"].dt.to_period("M")
-    # Agrupa por mes para evitar distorsiones de múltiples filas por pozo
     out = (out.groupby("Ym", as_index=False)
               .agg({"Date": "min", "Oil": "sum", "Gas": "sum", "Water": "sum", "Well Count": "max"})
               .sort_values("Date").reset_index(drop=True))
@@ -54,7 +53,6 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     omitted_count = 0
     df_clean = df.copy()
 
-    # --- FILTRO AUTOMÁTICO DE DUPLICADOS (STs) CON JERARQUÍA ---
     try:
         api_col = _find(df_clean, "api14", "api 14", "api", "uwi")
         original_count = len(df_clean)

@@ -72,6 +72,7 @@ with st.sidebar:
 
     st.header("1. Base Financials")
     lycf = st.number_input("Base LYCF ($/year)", value=0.0, step=1000.0, key="input_lycf")
+    st.caption("Note: LYCF must be audited and normalized to a trailing 12-month basis.")
     lycf_note = st.empty()
     st.markdown("---")
     
@@ -79,7 +80,7 @@ with st.sidebar:
     interest_type = st.selectbox("Select Interest Type", ["NRI", "ORRI", "WI"], key="input_interest")
     
     if interest_type == "WI":
-        lycf_note.info("For a WI evaluation, enter the LYCF **already net of the year's operating expenses (OPEX)**.")
+        lycf_note.info("For a WI evaluation, ensure the LYCF is **already net of the year's operating expenses (OPEX)**.")
         wi_pct = st.number_input("Average Working Interest (WI) Decimal (e.g. 0.0005)", min_value=0.0, max_value=1.0, value=0.0, format="%.6f", key="input_wi")
         st.markdown("**P&A Liability Calculation**")
         operator_distress = st.checkbox("Operator in Negative Cash Flow", help="Calculate P&A for ALL wells (Active + Inactive) per underwriting rules.")
@@ -111,12 +112,25 @@ with st.sidebar:
         elif worst_decline >= 10.0: assigned_mult, risk_class = 2.5, "Moderate Decline"
         else: assigned_mult, risk_class = 3.0, "Low Decline"
         if min(dec_1yr_input, dec_5yr_input) < 0:
-            st.error("Negative decline rate: per underwriting rules this is not a WF project, so this tool does not apply.")
+            st.error("Negative decline means production increased in the selected window. Please re-select the points in OFM.")
         else:
             st.info(f"Assigned Multiple: {assigned_mult}x\n\nRisk Class: {risk_class}")
 
+    st.markdown("---")
+    with st.expander("Methodology & Assumptions"):
+        st.markdown("""
+        - **Cash Flow Projection**: Future cash flow is projected by scaling the Base LYCF by the monthly volume decline and the ratio of future strip prices to the base historical prices.
+        - **Forecast Horizon**: 360 months (30 years) to fully capture the economic life of a mature waterflood.
+        - **Discount Rates**: Future cash flows are discounted at standard hurdle rates of **17.5%** and **25.0%**.
+        - **P&A Liability**: Calculated as `Total Inactive TVD × WI % × $/ft`. Deducted entirely in Month 1 (Lump Sum).
+        - **Annual CF Multiple**: Calculated as the Offer Amount divided by the Gross Cash Flow of the first 12 projected months (before P&A deduction).
+        - **Start Date**: The cash flow projection starts exactly at the current month.
+        """)
+
+is_distress = (interest_type == "WI" and operator_distress)
+
 st.subheader("Data Upload")
-if interest_type == "WI" and operator_distress:
+if is_distress:
     st.info("Negative CF Mode Active: Only the Wells Table is required to calculate the total P&A liability.")
     wells_file = st.file_uploader("Wells Table", type=["csv", "xlsx"], key="file_wells")
     st.caption("Export WG table from Drilling Info")
@@ -134,16 +148,36 @@ else:
         wells_file = st.file_uploader("3. Wells Table", type=["csv", "xlsx"], key="file_wells")
         st.caption("Export WG table from Drilling Info")
 
+df_prices_edited = None
+if not is_distress and price_file:
+    st.markdown("---")
+    st.subheader("Future Prices & Differentials (Editable)")
+    st.caption("Review, edit, or copy-paste values directly into the table. The evaluation will use these exact numbers.")
+    if price_file.name.lower().endswith('.csv'): 
+        df_prices_in = pd.read_csv(price_file)
+    else: 
+        df_prices_in = pd.read_excel(price_file, sheet_name=0, engine='openpyxl')
+    
+    # El editor interactivo donde el usuario puede modificar y copiar/pegar libremente
+    df_prices_edited = st.data_editor(df_prices_in, num_rows="dynamic", use_container_width=True, key="price_editor")
+
 st.markdown("---")
 
 if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
-    if lycf == 0.0 or (interest_type == "WI" and wi_pct == 0.0):
-        st.warning("Warning: LYCF and Average WI Decimal cannot be 0. Please check the sidebar inputs.")
-    elif not (interest_type == "WI" and operator_distress) and min(dec_1yr_input, dec_5yr_input) < 0:
-        st.error("Negative decline rate: per underwriting rules this is not a WF project, so the evaluation cannot be run.")
-    elif interest_type == "WI" and operator_distress and not wells_file:
+    
+    # Validaciones robustas incluyendo escenarios de LYCF negativo
+    if not is_distress and lycf <= 0.0:
+        if interest_type == "WI":
+            st.error("LYCF is zero or negative. If the operator is in distress, please check 'Operator in Negative Cash Flow' in the sidebar.")
+        else:
+            st.error("LYCF is zero or negative. For NRI/ORRI, this asset generates no positive cash flow. Valuation is $0 and the asset is considered inactive.")
+    elif interest_type == "WI" and wi_pct == 0.0:
+        st.warning("Warning: Average WI Decimal cannot be 0 for a Working Interest evaluation.")
+    elif not is_distress and min(dec_1yr_input, dec_5yr_input) < 0:
+        st.error("Negative decline means production increased in the selected window. Please re-select the points in OFM.")
+    elif is_distress and not wells_file:
         st.warning("Please upload the Wells Table to calculate the P&A liability.")
-    elif not (interest_type == "WI" and operator_distress) and (not prod_file or not price_file or (interest_type == "WI" and not wells_file)):
+    elif not is_distress and (not prod_file or df_prices_edited is None or (interest_type == "WI" and not wells_file)):
         st.warning("Please upload the necessary files (Historical Production, Price, and Wells Table) to continue.")
     else:
         loader_placeholder = st.empty()
@@ -161,7 +195,7 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
             """, unsafe_allow_html=True)
             
         try:
-            if interest_type == "WI" and operator_distress:
+            if is_distress:
                 if wells_file.name.lower().endswith('.csv'): df_wells = pd.read_csv(wells_file)
                 else: df_wells = pd.read_excel(wells_file, engine='openpyxl')
                 wells_summary = engine.summarize_wells(df_wells)
@@ -186,9 +220,8 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 else: df_prod = pd.read_excel(prod_file, engine='openpyxl')
                 df_prod_clean = engine.clean_production(df_prod)
                 
-                if price_file.name.lower().endswith('.csv'): df_prices_raw = pd.read_csv(price_file)
-                else: df_prices_raw = pd.read_excel(price_file, sheet_name=0, engine='openpyxl')
-                df_prices = engine.clean_prices(df_prices_raw)
+                # Usar los precios editados interactivamente
+                df_prices = engine.clean_prices(df_prices_edited)
                 
                 base_ratios = engine.base_prices(df_prices, df_prod_clean, months=12)
                 fit_1y = engine.fit_arps(engine.rate_window(df_prod_clean, 12)["qo"].values, kind="auto")

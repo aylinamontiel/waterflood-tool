@@ -289,6 +289,7 @@ def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil:
     stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
     return float(lycf * stressed_pf)
 
+# AQUI ESTA LA CORRECCION DEL PARAMETRO FALTANTE
 def calculate_abandonment(interest_type: str, wells_data: dict, n_override: int, default_wi: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12, fallback_tvd: float = 0.0) -> dict:
     if interest_type.upper() in ["NRI", "ORRI"]:
         return {"per_well": 0.0, "total": 0.0, "schedule": np.zeros(months), "used_fallback_tvd": False}

@@ -53,15 +53,18 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     omitted_count = 0
     df_clean = df.copy()
 
-    # 1. Rescatar WI limpiando símbolos de porcentaje y espacios
+    # 1. Rescatar WI estricto en decimales (Lanza error si detecta > 1)
     try:
-        wi_col = _find(df_clean, "working interest", "wi", "wi decimal", "wi %")
-        wi_raw = df_clean[wi_col].astype(str).str.replace("%", "", regex=False).str.replace(",", "", regex=False)
-        df_clean["_wi_val"] = pd.to_numeric(wi_raw, errors="coerce")
-    except ValueError:
+        wi_col = _find(df_clean, "working interest", "wi", "wi decimal")
+        df_clean["_wi_val"] = pd.to_numeric(df_clean[wi_col], errors="coerce")
+        if (df_clean["_wi_val"] > 1.0).any():
+            raise ValueError("Working Interest must be in decimals (e.g., 0.05), not percentages. Found values > 1.0 in the table. Please correct the file.")
+    except ValueError as e:
+        if "Working Interest must be in decimals" in str(e):
+            raise e
         df_clean["_wi_val"] = np.nan
 
-    # --- FILTRO AUTOMÁTICO DE DUPLICADOS (STs) CON JERARQUÍA ---
+    # --- FILTRO AUTOMÁTICO DE DUPLICADOS (STs) ---
     try:
         api_col = _find(df_clean, "api14", "api 14", "api", "uwi")
         original_count = len(df_clean)
@@ -77,7 +80,7 @@ def summarize_wells(df: pd.DataFrame) -> dict:
 
         df_clean["API10"] = df_clean[api_col].map(_api10)
 
-        # 2. Compartir el WI entre los STs antes de borrar para no perder el dato
+        # Compartir el WI entre los STs antes de borrar para no perder el dato
         df_clean["_wi_val"] = df_clean.groupby("API10")["_wi_val"].transform(lambda x: x.ffill().bfill())
 
         try:
@@ -114,24 +117,23 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     try: raw_status = df_clean[_find(df_clean, "well status", "status")].astype(str).str.upper()
     except ValueError: raw_status = pd.Series(["UNKNOWN"] * len(df_clean))
     
-    # 3. BLINDAJE DE TVD: Quitar las comas (ej. "4,924") antes de pasarlo a número
+    # 3. BLINDAJE DE TVD (Convierte los TVD = 0 a NaN para no dañar el promedio)
     try: 
         t_col = _find(df_clean, "true vertical depth", "tvd")
         tvd_raw = df_clean[t_col].astype(str).str.replace(",", "", regex=False).str.strip()
-        tvd_col = pd.to_numeric(tvd_raw, errors="coerce")
+        tvd_col = pd.to_numeric(tvd_raw, errors="coerce").replace(0, np.nan)
     except ValueError: 
         tvd_col = pd.Series([np.nan] * len(df_clean))
 
     d = pd.DataFrame({"ptype": ptype_col, "raw_status": raw_status, "tvd": tvd_col, "wi": df_clean["_wi_val"]})
 
-    # 4. BLINDAJE DE CLASIFICACIÓN (Capturar variaciones como "WATER" o "SWD/INJ")
+    # 4. BLINDAJE DE CLASIFICACIÓN
     def _map_type(s):
         t = str(s).upper()
         if "DISPOSAL" in t or re.search(r"\bSWD\b", t): return "SWD"
         if "INJ" in t or "WATER" in t: return "INJ"
-        if "OIL" in t or "PROD" in t: return "OIL"
         if "GAS" in t: return "GAS"
-        return "OTHER"
+        return "OIL"
 
     d["wtype"] = d["ptype"].map(_map_type)
     d["inj"] = d["wtype"] == "INJ"
@@ -139,10 +141,9 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     def _map_status(s):
         t = re.sub(r"\s+", " ", str(s).upper().replace("_", " ")).strip()
         if re.search(r"TEMP\w*\.?\s*ABAND|\bTA\b|INACT|SHUT[\s-]?IN|\bSI\b|NON[\s-]?PRODUC|\bTEMP", t): return "INACTIVE"
-        if re.search(r"\bP\s*[&/]\s*A\b|\bPA\b|PLUGGED|ABANDON", t): return "PA"
-        # Incluye explícitamente "ACT" como límite de palabra por si DI lo exporta abreviado
+        if re.search(r"\bP\s*[&/]\s*A\b|\bPA\b|PLUGGED|ABANDON", t): return "PA" # Abandoned se queda en P&A
         if re.search(r"\bACT\b|\bACTIVE\b|PRODUC|INJECT", t): return "ACTIVE"
-        return "OTHER"
+        return "OTHER" # DUCs, Permits, Cancelled, Expired caen aquí
 
     d["status"] = d["raw_status"].map(_map_status)
 
@@ -160,6 +161,10 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     info["liable_wells"] = int(len(liable))
     info["liable_tvd_sum"] = float(liable["tvd"].dropna().sum())
     info["liable_missing_tvd"] = int(liable["tvd"].isna().sum())
+    
+    # Conteo de WIs propios vs globales
+    info["wi_custom_count"] = int(liable["wi"].notna().sum())
+    info["wi_default_count"] = int(info["liable_wells"] - info["wi_custom_count"])
     
     info["liable_wells_data"] = {"tvd": liable["tvd"].tolist(), "wi": liable["wi"].tolist()}
     info["inactive_wells_data"] = {"tvd": groups["inactive_ta"]["tvd"].tolist(), "wi": groups["inactive_ta"]["wi"].tolist()}
@@ -284,20 +289,26 @@ def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil:
     stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
     return float(lycf * stressed_pf)
 
-def calculate_abandonment(interest_type: str, wells_data: dict, n_override: int, default_wi: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12) -> dict:
+def calculate_abandonment(interest_type: str, wells_data: dict, n_override: int, default_wi: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12, fallback_tvd: float = 0.0) -> dict:
     if interest_type.upper() in ["NRI", "ORRI"]:
-        return {"per_well": 0.0, "total": 0.0, "schedule": np.zeros(months)}
+        return {"per_well": 0.0, "total": 0.0, "schedule": np.zeros(months), "used_fallback_tvd": False}
     
     total = 0.0
+    used_fallback = False
+    
     if n_override > 0:
         tvd_list = [v for v in wells_data.get("tvd", []) if not pd.isna(v)]
-        tvd_avg = sum(tvd_list)/len(tvd_list) if tvd_list else 0.0
+        tvd_avg = sum(tvd_list)/len(tvd_list) if tvd_list else fallback_tvd
+        if not tvd_list and fallback_tvd > 0:
+            used_fallback = True
         total = n_override * tvd_avg * default_wi * cost_per_ft
         n_wells = n_override
     else:
         n_wells = len(wells_data.get("tvd", []))
         for tvd, wi in zip(wells_data.get("tvd", []), wells_data.get("wi", [])):
-            tvd_val = 0.0 if pd.isna(tvd) else tvd
+            tvd_val = fallback_tvd if pd.isna(tvd) else tvd
+            if pd.isna(tvd) and fallback_tvd > 0:
+                used_fallback = True
             wi_val = default_wi if pd.isna(wi) else wi
             total += tvd_val * wi_val * cost_per_ft
             
@@ -308,7 +319,8 @@ def calculate_abandonment(interest_type: str, wells_data: dict, n_override: int,
     else:
         k = min(spread_months, months)
         if k > 0: sched[0:k] = total / k
-    return {"per_well": per_well, "total": total, "schedule": sched}
+        
+    return {"per_well": per_well, "total": total, "schedule": sched, "used_fallback_tvd": used_fallback}
 
 def build_forecast(*, months: int, lycf: float, decline: float, prices: pd.DataFrame, base_prices_ratios: dict, start: pd.Timestamp, last_prod: pd.Period, abandon_schedule: np.ndarray) -> pd.DataFrame:
     idx = pd.period_range(start, periods=months, freq="M")

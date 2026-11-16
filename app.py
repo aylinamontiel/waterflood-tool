@@ -122,7 +122,7 @@ with st.sidebar:
         - **Cash Flow Projection**: Future cash flow is projected by scaling the Base LYCF by the monthly volume decline and the ratio of future strip prices to the base historical prices.
         - **Forecast Horizon**: 360 months (30 years) to fully capture the economic life of a mature waterflood.
         - **Discount Rates**: Future cash flows are discounted at standard hurdle rates of **17.5%** and **25.0%**.
-        - **P&A Liability**: Calculated as `Total Inactive TVD × WI % × $/ft`. Deducted entirely in Month 1 (Lump Sum).
+        - **P&A Liability**: Calculated on a well-by-well basis (`Well TVD × Well WI % × $/ft`) when well data is available, applying the global WI % if individual well interests are not specified. Deducted entirely in Month 1 (Lump Sum).
         - **Annual CF Multiple**: Calculated as the Offer Amount divided by the Gross Cash Flow of the first 12 projected months (before P&A deduction).
         - **Start Date**: The cash flow projection starts exactly at the current month.
         """)
@@ -148,24 +148,10 @@ else:
         wells_file = st.file_uploader("3. Wells Table", type=["csv", "xlsx"], key="file_wells")
         st.caption("Export WG table from Drilling Info")
 
-df_prices_edited = None
-if not is_distress and price_file:
-    st.markdown("---")
-    st.subheader("Future Prices & Differentials (Editable)")
-    st.caption("Review, edit, or copy-paste values directly into the table. The evaluation will use these exact numbers.")
-    if price_file.name.lower().endswith('.csv'): 
-        df_prices_in = pd.read_csv(price_file)
-    else: 
-        df_prices_in = pd.read_excel(price_file, sheet_name=0, engine='openpyxl')
-    
-    # El editor interactivo donde el usuario puede modificar y copiar/pegar libremente
-    df_prices_edited = st.data_editor(df_prices_in, num_rows="dynamic", use_container_width=True, key="price_editor")
-
 st.markdown("---")
 
 if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
     
-    # Validaciones robustas incluyendo escenarios de LYCF negativo
     if not is_distress and lycf <= 0.0:
         if interest_type == "WI":
             st.error("LYCF is zero or negative. If the operator is in distress, please check 'Operator in Negative Cash Flow' in the sidebar.")
@@ -177,7 +163,7 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
         st.error("Negative decline means production increased in the selected window. Please re-select the points in OFM.")
     elif is_distress and not wells_file:
         st.warning("Please upload the Wells Table to calculate the P&A liability.")
-    elif not is_distress and (not prod_file or df_prices_edited is None or (interest_type == "WI" and not wells_file)):
+    elif not is_distress and (not prod_file or not price_file or (interest_type == "WI" and not wells_file)):
         st.warning("Please upload the necessary files (Historical Production, Price, and Wells Table) to continue.")
     else:
         loader_placeholder = st.empty()
@@ -202,8 +188,7 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 total_wells = wells_summary.get("liable_wells", 0)
                 n_plugged = wells_summary["pa_wells"]["n"]
                 
-                tvd_avg = wells_summary.get("liable_tvd_sum", 0.0) / total_wells if total_wells > 0 else 0.0
-                abandon_data = engine.calculate_abandonment(interest_type=interest_type, n_inactive_wells=total_wells, wi_pct=wi_pct, tvd_avg=tvd_avg, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=wells_summary.get("liable_tvd_sum", 0.0))
+                abandon_data = engine.calculate_abandonment(interest_type=interest_type, wells_data=wells_summary.get("liable_wells_data", {}), n_override=0, default_wi=wi_pct, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months)
                 
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
@@ -220,14 +205,15 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 else: df_prod = pd.read_excel(prod_file, engine='openpyxl')
                 df_prod_clean = engine.clean_production(df_prod)
                 
-                # Usar los precios editados interactivamente
-                df_prices = engine.clean_prices(df_prices_edited)
+                if price_file.name.lower().endswith('.csv'): df_prices_raw = pd.read_csv(price_file)
+                else: df_prices_raw = pd.read_excel(price_file, sheet_name=0, engine='openpyxl')
+                df_prices = engine.clean_prices(df_prices_raw)
                 
                 base_ratios = engine.base_prices(df_prices, df_prod_clean, months=12)
                 fit_1y = engine.fit_arps(engine.rate_window(df_prod_clean, 12)["qo"].values, kind="auto")
                 fit_5y = engine.fit_arps(engine.rate_window(df_prod_clean, 60)["qo"].values, kind="auto")
                 
-                tvd_avg, n_inactive_auto, tvd_sum_auto = 0.0, 0, 0.0
+                n_inactive_auto = 0
                 wells_summary, audit_res = None, None
                 
                 if wells_file:
@@ -235,15 +221,12 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                     else: df_wells = pd.read_excel(wells_file, engine='openpyxl')
                     wells_summary = engine.summarize_wells(df_wells)
                     n_inactive_auto = wells_summary.get("inactive_ta", {}).get("n", 0)
-                    tvd_avg = wells_summary.get("inactive_ta", {}).get("tvd_avg", 0.0)
-                    if pd.isna(tvd_avg): tvd_avg = 0.0
-                    tvd_sum_auto = wells_summary.get("inactive_ta", {}).get("tvd_sum", 0.0)
                     audit_res = engine.audit_waterflood(df_prod_clean, wells_summary)
                 
                 final_inactive_count = n_inactive_override if n_inactive_override > 0 else n_inactive_auto
-                exact_sum = tvd_sum_auto if n_inactive_override == 0 else None
+                wells_data = wells_summary.get("inactive_wells_data", {}) if wells_summary else {}
                 
-                abandon_data = engine.calculate_abandonment(interest_type=interest_type, n_inactive_wells=final_inactive_count, wi_pct=wi_pct, tvd_avg=tvd_avg, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, exact_tvd_sum=exact_sum)
+                abandon_data = engine.calculate_abandonment(interest_type=interest_type, wells_data=wells_data, n_override=n_inactive_override, default_wi=wi_pct, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months)
                 
                 forecast_5yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 forecast_1yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_1yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])

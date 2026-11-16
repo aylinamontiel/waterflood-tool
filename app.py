@@ -401,3 +401,160 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 st.caption("Visual comparison of the 1-Year vs 5-Year decline rate scenarios (all offers use the higher, i.e. worst-case, decline). (You can zoom in to see the details ignoring the Month 1 P&A drop).")
                 
                 cf_120_5yr = forecast_5yr.head(120)
+                cf_120_1yr = forecast_1yr.head(120)
+                
+                fig_cf = go.Figure()
+                fig_cf.add_trace(go.Scatter(x=cf_120_5yr["Date"], y=cf_120_5yr["Net CF ($)"], name="Net CF (5-Yr Decline)", line=dict(color="#FFE500", width=3)))
+                fig_cf.add_trace(go.Scatter(x=cf_120_1yr["Date"], y=cf_120_1yr["Net CF ($)"], name="Net CF (1-Yr Decline)", line=dict(color="#38B6FF", width=3)))
+                
+                fig_cf.update_layout(
+                    hovermode="x unified",
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    font=dict(color="#0F2A4A", size=12),
+                    legend=dict(font=dict(color="#0F2A4A")), 
+                    margin=dict(l=70, r=40, t=30, b=30) 
+                )
+                fig_cf.update_xaxes(title_text="", showgrid=False, dtick="M12", tickformat="%b %Y", tickfont=dict(color="#0F2A4A"))
+                fig_cf.update_yaxes(title_text="Net Cash Flow (USD)", title_standoff=15, title_font=dict(color="#0F2A4A"), showgrid=True, gridcolor="rgba(0,0,0,0.1)", tickformat=".0f", tickfont=dict(color="#0F2A4A"))
+                
+                st.plotly_chart(fig_cf, use_container_width=True, theme=None)
+                
+                st.markdown("---")
+                
+                st.subheader("Underwriter Technical Notes (Copy & Paste)")
+                if wells_summary:
+                    str_1y = f"{dec_1yr_input:.2f}% (Auto-detected: {fit_1y['eff_decline']*100:.1f}%)" if fit_1y['success'] else f"{dec_1yr_input:.2f}%"
+                    str_5y = f"{dec_5yr_input:.2f}% (Auto-detected: {fit_5y['eff_decline']*100:.1f}%)" if fit_5y['success'] else f"{dec_5yr_input:.2f}%"
+                    
+                    gross_val_str = f"-${abs(matrix_gross_offer):,.0f}" if matrix_gross_offer < 0 else f"${matrix_gross_offer:,.0f}"
+                    
+                    pa_line_str = f"- P&A Deduction = -${abandon_data['total']:,.0f}\n" if interest_type == "WI" else ""
+                    
+                    scen_notes = "\n".join(
+                        f"- {k} Decline ({v['dec']:.2f}%): Target 25% = {fmt_usd(v['pv25']['Estimated Offer ($)'])} | DCF 17.5% = {fmt_usd(v['pv175']['Estimated Offer ($)'])} | Annual CF Multiple (Net Matrix Offer) = {fmt_mult(v['matrix']['Annual CF Multiple (x)'])}"
+                        for k, v in scen_results.items())
+                    
+                    all_calculated_offers = [
+                        matrix_net_offer, val_dcf_25['Estimated Offer ($)'], val_dcf['Estimated Offer ($)'],
+                        stressed_matrix_net, val_flat_dcf_25['Estimated Offer ($)'], val_flat_dcf['Estimated Offer ($)']
+                    ]
+                    all_calculated_offers += [v[k]["Estimated Offer ($)"] for v in scen_results.values() for k in ("pv25", "pv175")]
+                    valid_offers = [o for o in all_calculated_offers if not np.isnan(o)]
+                    min_offer = min(valid_offers) if valid_offers else 0
+                    max_offer = max(valid_offers) if valid_offers else 0
+                    
+                    min_offer_str = f"-${abs(min_offer):,.0f}" if min_offer < 0 else f"${min_offer:,.0f}"
+                    max_offer_str = f"-${abs(max_offer):,.0f}" if max_offer < 0 else f"${max_offer:,.0f}"
+                    
+                    final_range_text = f"\n**Recommended Offer Range (Worst Case to Best Case): {min_offer_str} to {max_offer_str}**"
+
+                    if wells_summary["total_wells"] == 1:
+                        notes = f"""Write Up
+- Interest Type Evaluated: {interest_type.upper()}
+
+Production will be forecasted using OFM:
+- Production decline rate for last yr = {str_1y}
+- Production decline rate for last 5 yrs = {str_5y}
+"""
+                        if interest_type == "WI":
+                            notes += f"\nSince this is a Working Interest (WI) evaluation, environmental liability was accounted for.\n"
+
+                        notes += f"""
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. The higher (worst-case) of the two decline rates ({worst_decline:.2f}%) is applied to all valuations.
+
+Base Valuation Calculation (Strip Pricing):
+- Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
+{pa_line_str}- Net Matrix Offer = {net_str}
+- Annual CF Multiple of the Net Matrix Offer = {fmt_mult(val_wf['Annual CF Multiple (x)'])}
+
+Generated Evaluation Offer Range (Strip Pricing):
+- Valuation 1 (Net Matrix Rule @ {assigned_mult}x): {net_str}
+- Valuation 2 (Target 25% IRR): {val_dcf_25_str}
+- Valuation 3 (Standard DCF PV 17.5%): {val_dcf17_str}
+
+Offers by Decline Scenario (Strip Pricing):
+{scen_notes}
+
+Stress Test Valuations ($50 WTI / $3 NYMEX, flat realized prices, no differentials):
+- Stressed Matrix Offer Entry: {stressed_net_str}
+- Required Offer (Target 25%): {flat_25_str}
+- Required Offer (DCF 17.5%): {flat_17_str}
+{final_range_text}"""
+
+                        if matrix_net_offer < 0:
+                            notes += "\n\n⚠️ CONCLUSION: The estimated environmental liability exceeds the asset's gross value, resulting in negative valuation scenarios. Acquiring these wells is NOT recommended."
+
+                    else:
+                        active_prod, tvd_prod = wells_summary['active_oil']['n'], wells_summary['active_oil']['tvd_avg']
+                        active_inj, tvd_inj = wells_summary['active_inj']['n'], wells_summary['active_inj']['tvd_avg']
+                        
+                        def fmt_tvd(v): return f"{v:,.0f}'" if not np.isnan(v) else "N/A"
+                        
+                        tmin, tmax = wells_summary['inactive_ta']['tvd_min'], wells_summary['inactive_ta']['tvd_max']
+                        tavg_inact = wells_summary['inactive_ta']['tvd_avg']
+                        tvd_range = f"{tmin:,.0f}' - {tmax:,.0f}' (AVG TVD: {fmt_tvd(tavg_inact)})" if not np.isnan(tmin) else "N/A"
+                        
+                        if audit_res['tvd_pass'] and audit_res['water_pass']:
+                            audit_p = f"The presence of {active_inj} injection wells with an average TVD ({fmt_tvd(tvd_inj)}), comparable to the producing wells ({fmt_tvd(tvd_prod)}), confirms Zone and TVD Consistency. Furthermore, the Waterflood Signature Identification verifies that the water production volume is substantially and consistently higher than the oil production ({audit_res['water_signature']}). This rigorously confirms the unit is under an active secondary recovery project."
+                        else:
+                            audit_p = "⚠️ The project failed the Waterflood Technical Audit. "
+                            if not audit_res['tvd_pass']: audit_p += "Injection wells do not share a highly similar TVD with producers. "
+                            if not audit_res['water_pass']: audit_p += "Water production volume does not exhibit an active waterflood signature. "
+                            audit_p += "There may be no active waterflood supporting this asset."
+
+                        notes = f"""Write Up
+- Interest Type Evaluated: {interest_type.upper()}
+- Unit located in DI:
+  - {active_prod + active_inj} ACTIVE wells
+    - {active_inj} Injection wells (AVG TVD = {fmt_tvd(tvd_inj)})
+    - {active_prod} Oil producers (AVG TVD = {fmt_tvd(tvd_prod)})
+  - {wells_summary['inactive_ta']['n']} INACTIVE / SHUT-IN / TA wells
+    - TVD range for inactive wells: {tvd_range}
+  - {wells_summary['pa_wells']['n']} P&A wells"""
+  
+                        nonoil = wells_summary["active_non_oil"]
+                        if nonoil["n"] > 0:
+                            notes += f"\n  - {nonoil['n']} other ACTIVE wells not used in the audit (Gas: {nonoil['gas']}, SWD: {nonoil['swd']}, Other: {nonoil['other']})"
+
+                        if wells_summary.get("other_statuses"):
+                            other_total = sum(wells_summary["other_statuses"].values())
+                            notes += f"\n  - {other_total} OTHER wells (Statuses: {', '.join([f'{k} ({v})' for k, v in wells_summary['other_statuses'].items()])})"
+                            
+                        if wells_summary.get("omitted_sts", 0) > 0:
+                            notes += f"\n  - {wells_summary['omitted_sts']} Sidetracks/Duplicates omitted (Filtered to prevent duplicate TVD and P&A counts)"
+
+                        notes += f"\n\n{audit_p}\n\nTherefore, production will be forecasted using OFM:\n- Production decline rate for last yr = {str_1y}\n- Production decline rate for last 5 yrs = {str_5y}\n"
+                        
+                        if interest_type == "WI":
+                            notes += f"\nSince this is a Working Interest (WI) evaluation, a total of {final_inactive_count} non-producing wells (Inactive/Shut-in/TA; wells already P&A are excluded) were accounted for environmental liability.\n"
+
+                        notes += f"""
+Since the decline rates represent a {risk_class}, a default multiple of {assigned_mult}X will be used to generate the base offer. The higher (worst-case) of the two decline rates ({worst_decline:.2f}%) is applied to all valuations.
+
+Base Valuation Calculation (Strip Pricing):
+- Gross Offer ({assigned_mult}X * ${lycf:,.0f} LYCF) = {gross_val_str}
+{pa_line_str}- Net Matrix Offer = {net_str}
+- Annual CF Multiple of the Net Matrix Offer = {fmt_mult(val_wf['Annual CF Multiple (x)'])}
+
+Generated Evaluation Offer Range (Strip Pricing):
+- Valuation 1 (Net Matrix Rule @ {assigned_mult}x): {net_str}
+- Valuation 2 (Target 25% IRR): {val_dcf_25_str}
+- Valuation 3 (Standard DCF PV 17.5%): {val_dcf17_str}
+
+Offers by Decline Scenario (Strip Pricing):
+{scen_notes}
+
+Stress Test Valuations ($50 WTI / $3 NYMEX, flat realized prices, no differentials):
+- Stressed Matrix Offer Entry: {stressed_net_str}
+- Required Offer (Target 25%): {flat_25_str}
+- Required Offer (DCF 17.5%): {flat_17_str}
+{final_range_text}"""
+                        
+                        if matrix_net_offer < 0:
+                            notes += "\n\n⚠️ CONCLUSION: The estimated environmental liability exceeds the asset's gross value, resulting in negative valuation scenarios. Acquiring these wells is NOT recommended."
+
+                    st.code(notes, language="markdown")
+
+        except Exception as e:
+            loader_placeholder.empty()
+            st.error(f"An error occurred while processing the data: {str(e)}")

@@ -245,4 +245,124 @@ def fit_arps(rates, kind: str = "auto") -> dict:
             cands[name] = {"qi": float(p[0]), "D": float(p[1]), "b": float(p[2]) if k == 3 else b, "sse": sse, "k": k}
         except (RuntimeError, ValueError, TypeError, FloatingPointError, np.linalg.LinAlgError): pass 
 
-    _try("exp
+    _try("exp", lambda t, qi, D: _arps_q(t, qi, D, 0.0), [qi0, np.clip(D0, dmin, 20)], [0, dmin], [qmax, 20], 0.0, 2)
+    _try("harm", lambda t, qi, D: _arps_q(t, qi, D, 1.0), [qi0, np.clip(D0, dmin, 20)], [0, dmin], [qmax, 20], 1.0, 2)
+    
+    if not cands: return {"kind": "exp", "eff_decline": 0.0, "D_nominal": 0.0, "b": 0.0, "success": False}
+    if kind == "auto":
+        kind = min(cands, key=lambda k: n * np.log(max(cands[k]["sse"], 1e-12) / n) + cands[k]["k"] * np.log(n))
+    
+    c = cands[kind]
+    return {"kind": kind, "eff_decline": _eff_decline(c["D"], c["b"]), "success": True}
+
+def base_prices(prices: pd.DataFrame, prod: pd.DataFrame, months: int = 12) -> dict:
+    last = prod["Ym"].max()
+    win = prod[prod["Ym"] > last - months].merge(prices[["Ym", "WTI", "NYMEX", "Oil Diff", "Gas Diff"]], on="Ym", how="left")
+    missing = win.loc[win["WTI"].isna() | win["NYMEX"].isna(), "Ym"].astype(str).tolist()
+    if missing:
+        raise ValueError(
+            "The Price Input File does not cover the last 12 months of production "
+            f"(missing prices for: {', '.join(missing)}). Use a price file that includes historical prices."
+        )
+    po = win["WTI"] + win["Oil Diff"]
+    pg = win["NYMEX"] + win["Gas Diff"]
+    oil_rev = float((win["Oil"] * po).sum())
+    gas_rev = float((win["Gas"] * pg).sum())
+    tot = oil_rev + gas_rev
+    return {"oil_base": float(po.mean()), "gas_base": float(pg.mean()), "oil_share": oil_rev / tot if tot > 0 else 1.0}
+
+def calculate_stressed_lycf(lycf: float, base_prices_ratios: dict, stressed_oil: float = 50.0, stressed_gas: float = 3.0) -> float:
+    ob = base_prices_ratios["oil_base"] if base_prices_ratios["oil_base"] > 0 else 1.0
+    gb = base_prices_ratios["gas_base"] if base_prices_ratios["gas_base"] > 0 else 1.0
+    stressed_pf = (base_prices_ratios["oil_share"] * stressed_oil / ob + (1 - base_prices_ratios["oil_share"]) * stressed_gas / gb)
+    return float(lycf * stressed_pf)
+
+def calculate_abandonment(interest_type: str, wells_data: dict, n_override: int, default_wi: float, cost_per_ft: float = 7.0, months: int = 12, mode: str = "Lump Sum", spread_months: int = 12) -> dict:
+    if interest_type.upper() in ["NRI", "ORRI"]:
+        return {"per_well": 0.0, "total": 0.0, "schedule": np.zeros(months)}
+    
+    total = 0.0
+    if n_override > 0:
+        tvd_list = [v for v in wells_data.get("tvd", []) if not pd.isna(v)]
+        tvd_avg = sum(tvd_list)/len(tvd_list) if tvd_list else 0.0
+        total = n_override * tvd_avg * default_wi * cost_per_ft
+        n_wells = n_override
+    else:
+        n_wells = len(wells_data.get("tvd", []))
+        for tvd, wi in zip(wells_data.get("tvd", []), wells_data.get("wi", [])):
+            tvd_val = 0.0 if pd.isna(tvd) else tvd
+            wi_val = default_wi if pd.isna(wi) else wi
+            total += tvd_val * wi_val * cost_per_ft
+            
+    per_well = total / n_wells if n_wells > 0 else 0.0
+    sched = np.zeros(months)
+    if mode == "Lump Sum":
+        sched[0] = total
+    else:
+        k = min(spread_months, months)
+        if k > 0: sched[0:k] = total / k
+    return {"per_well": per_well, "total": total, "schedule": sched}
+
+def build_forecast(*, months: int, lycf: float, decline: float, prices: pd.DataFrame, base_prices_ratios: dict, start: pd.Timestamp, last_prod: pd.Period, abandon_schedule: np.ndarray) -> pd.DataFrame:
+    idx = pd.period_range(start, periods=months, freq="M")
+    lag = (idx[0] - last_prod).n - 1  
+    m = np.arange(1, months + 1) + max(lag, 0)
+    
+    decline = float(np.clip(decline, 0.0, 0.99))  
+    vol = (1.0 - decline) ** (m / 12.0)
+
+    p = prices.set_index("Ym")
+    oil = (p["WTI"] + p["Oil Diff"]).reindex(idx).ffill().bfill().to_numpy()
+    gas = (p["NYMEX"] + p["Gas Diff"]).reindex(idx).ffill().bfill().to_numpy()
+    
+    ob = base_prices_ratios["oil_base"] if base_prices_ratios["oil_base"] > 0 else 1.0
+    gb = base_prices_ratios["gas_base"] if base_prices_ratios["gas_base"] > 0 else 1.0
+    pf = (base_prices_ratios["oil_share"] * oil / ob + (1 - base_prices_ratios["oil_share"]) * gas / gb)
+
+    cf_gross = (lycf / 12.0) * vol * pf
+    ab = np.asarray(abandon_schedule)[:months]
+    
+    out = pd.DataFrame({"Date": idx.to_timestamp(how="end").normalize(), "Gross CF ($)": cf_gross, "Abandonment ($)": -ab})
+    out["Net CF ($)"] = out["Gross CF ($)"] + out["Abandonment ($)"]
+    return out
+
+def xirr(amounts, dates) -> float:
+    a = np.asarray(amounts, float)
+    d = pd.to_datetime(pd.Series(list(dates)))
+    t = ((d - d.iloc[0]).dt.days / 365.0).to_numpy()
+    def f(r): return float(np.sum(a / np.power(1.0 + r, t)))
+    try:
+        lo, hi = -0.99, 1000.0
+        if f(lo) * f(hi) > 0: return float("nan")
+        return float(brentq(f, lo, hi, maxiter=500))
+    except Exception: return float("nan")
+
+def evaluate_cashflow(cf_neto: pd.Series, dates, fixed_offer: float = None, gross_cf=None) -> dict:
+    cf = np.asarray(cf_neto, float)
+    d = pd.to_datetime(pd.Series(list(dates)))
+    
+    offer_date = d.iloc[0] - pd.DateOffset(months=1)
+    t = ((d - offer_date).dt.days / 365.0).to_numpy()
+    
+    g = np.asarray(gross_cf, float) if gross_cf is not None else cf
+    year1_cf = float(cf[:12].sum())
+    year1_gross = float(g[:12].sum())
+    
+    pv_175 = float(np.sum(cf / (1.0 + 0.175) ** t))
+    pv_250 = float(np.sum(cf / (1.0 + 0.250) ** t))
+    
+    offer_amount = fixed_offer if fixed_offer is not None else pv_175
+    
+    amounts = np.concatenate([[-offer_amount], cf])
+    dts = [offer_date] + list(d) 
+    
+    return {
+        "Estimated Offer ($)": offer_amount,
+        "Year 1 CF ($)": year1_cf,
+        "Year 1 Gross CF ($)": year1_gross,
+        "Annual CF Multiple (x)": offer_amount / year1_gross if (offer_amount > 0 and year1_gross > 0) else float("nan"),
+        "IRR (%)": xirr(amounts, dts) * 100 if offer_amount > 0 else float("nan"),
+        "PV 17.5% ($)": pv_175,
+        "PV 25.0% ($)": pv_250,
+        "Total Net CF ($)": float(cf.sum())
+    }

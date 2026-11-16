@@ -81,7 +81,8 @@ with st.sidebar:
     
     if interest_type == "WI":
         lycf_note.info("For a WI evaluation, ensure the LYCF is **already net of the year's operating expenses (OPEX)**.")
-        wi_pct = st.number_input("Average Working Interest (WI) Decimal (e.g. 0.0005)", min_value=0.0, max_value=1.0, value=0.0, format="%.6f", key="input_wi")
+        st.caption("Usar el WI decimal que más se repite. En la Wells Table, la columna WI solo se llena en los pozos con WI distinto. En blanco = se usa este valor.")
+        wi_pct = st.number_input("Average Working Interest (WI) Decimal (e.g. 0.05)", min_value=0.0, max_value=1.0, value=0.0, format="%.6f", key="input_wi")
         st.markdown("**P&A Liability Calculation**")
         operator_distress = st.checkbox("Operator in Negative Cash Flow", help="Calculate P&A for ALL wells (Active + Inactive) per underwriting rules.")
         n_inactive_override = st.number_input("Inactive Wells (Type number OR leave 0 to auto-detect)", min_value=0, value=0, step=1, key="input_inactive")
@@ -120,6 +121,7 @@ with st.sidebar:
     with st.expander("Methodology & Assumptions"):
         st.markdown("""
         - **Cash Flow Projection**: Future cash flow is projected by scaling the Base LYCF by the monthly volume decline and the ratio of future strip prices to the base historical prices.
+        - **OPEX**: For WI evaluations, the base LYCF is assumed to scale proportionately with prices; no separate fixed vs. variable OPEX split is modeled.
         - **Forecast Horizon**: 360 months (30 years) to fully capture the economic life of a mature waterflood.
         - **Discount Rates**: Future cash flows are discounted at standard hurdle rates of **17.5%** and **25.0%**.
         - **P&A Liability**: Calculated on a well-by-well basis (`Well TVD × Well WI % × $/ft`) when well data is available, applying the global WI % if individual well interests are not specified. Deducted entirely in Month 1 (Lump Sum).
@@ -183,7 +185,7 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
         try:
             if is_distress:
                 if wells_file.name.lower().endswith('.csv'): 
-                    df_wells = pd.read_csv(wells_file, sep=None, engine='python')
+                    df_wells = pd.read_csv(wells_file)
                 else: 
                     df_wells = pd.read_excel(wells_file, engine='openpyxl')
                 
@@ -191,27 +193,34 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 total_wells = wells_summary.get("liable_wells", 0)
                 n_plugged = wells_summary["pa_wells"]["n"]
                 
-                abandon_data = engine.calculate_abandonment(interest_type=interest_type, wells_data=wells_summary.get("liable_wells_data", {}), n_override=0, default_wi=wi_pct, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months)
+                tvd_fallback = wells_summary.get("liable_tvd_sum", 0) / wells_summary.get("liable_wells", 1) if wells_summary.get("liable_wells", 0) > 0 else 0.0
+                abandon_data = engine.calculate_abandonment(interest_type=interest_type, wells_data=wells_summary.get("liable_wells_data", {}), n_override=0, default_wi=wi_pct, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, fallback_tvd=tvd_fallback)
                 
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
                 st.subheader("Distress Scenario Results")
                 st.error(f"Negative CF Rule Applied: Total P&A liability calculated for ALL {total_wells} wells (Active + Inactive); {n_plugged} already plugged (P&A) wells are excluded.")
+                
+                if abandon_data.get("used_fallback_tvd"):
+                    st.warning("⚠️ **P&A Depth Warning**: Missing TVD for inactive wells (or 0 inactive wells detected). Used the average TVD of the active wells as a fallback.")
+                if wells_summary and wells_summary.get("wi_custom_count", 0) > 0:
+                    st.info(f"**P&A WI Allocation**: {wells_summary['wi_custom_count']} wells used their own custom WI from the table; {wells_summary['wi_default_count']} wells used the default {wi_pct} WI.")
                 if wells_summary.get("liable_missing_tvd", 0) > 0:
-                    st.warning(f"{wells_summary['liable_missing_tvd']} well(s) have no TVD and are not included in the liability total.")
+                    st.warning(f"⚠️ {wells_summary['liable_missing_tvd']} well(s) have no TVD. (A fallback TVD was used if they are inactive).")
+                
                 col_d1, col_d2 = st.columns(2)
                 col_d1.metric("Baseline LYCF", f"-${abs(lycf):,.0f}" if lycf < 0 else f"${lycf:,.0f}")
                 col_d2.metric("Total P&A Liability Deduction", f"-${abandon_data['total']:,.0f}")
                 
             else:
                 if prod_file.name.lower().endswith('.csv'): 
-                    df_prod = pd.read_csv(prod_file, sep=None, engine='python')
+                    df_prod = pd.read_csv(prod_file)
                 else: 
                     df_prod = pd.read_excel(prod_file, engine='openpyxl')
                 df_prod_clean = engine.clean_production(df_prod)
                 
                 if price_file.name.lower().endswith('.csv'): 
-                    df_prices_raw = pd.read_csv(price_file, sep=None, engine='python')
+                    df_prices_raw = pd.read_csv(price_file)
                 else: 
                     df_prices_raw = pd.read_excel(price_file, sheet_name=0, engine='openpyxl')
                 df_prices = engine.clean_prices(df_prices_raw)
@@ -225,7 +234,7 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 
                 if wells_file:
                     if wells_file.name.lower().endswith('.csv'): 
-                        df_wells = pd.read_csv(wells_file, sep=None, engine='python')
+                        df_wells = pd.read_csv(wells_file)
                     else: 
                         df_wells = pd.read_excel(wells_file, engine='openpyxl')
                         
@@ -236,7 +245,8 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 final_inactive_count = n_inactive_override if n_inactive_override > 0 else n_inactive_auto
                 wells_data = wells_summary.get("inactive_wells_data", {}) if wells_summary else {}
                 
-                abandon_data = engine.calculate_abandonment(interest_type=interest_type, wells_data=wells_data, n_override=n_inactive_override, default_wi=wi_pct, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months)
+                tvd_fallback = wells_summary.get("liable_tvd_sum", 0) / wells_summary.get("liable_wells", 1) if (wells_summary and wells_summary.get("liable_wells", 0) > 0) else 0.0
+                abandon_data = engine.calculate_abandonment(interest_type=interest_type, wells_data=wells_data, n_override=n_inactive_override, default_wi=wi_pct, cost_per_ft=pa_cost_ft, months=360, mode=pa_mode, spread_months=pa_spread_months, fallback_tvd=tvd_fallback)
                 
                 forecast_5yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_5yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
                 forecast_1yr = engine.build_forecast(months=360, lycf=lycf, decline=(dec_1yr_input/100.0), prices=df_prices, base_prices_ratios=base_ratios, start=pd.Timestamp.today().normalize(), last_prod=df_prod_clean["Ym"].max(), abandon_schedule=abandon_data["schedule"])
@@ -277,6 +287,10 @@ if st.button("Run WaterFlood Evaluation", type="primary", key="btn_run"):
                 loader_placeholder.empty()
                 st.success("Evaluation completed successfully!")
                 
+                if abandon_data.get("used_fallback_tvd"):
+                    st.warning("⚠️ **P&A Depth Warning**: Missing TVD for inactive wells (or 0 inactive wells detected by the table but manually overridden). Used the average TVD of the active wells as a fallback.")
+                if wells_summary and wells_summary.get("wi_custom_count", 0) > 0:
+                    st.info(f"**P&A WI Allocation**: {wells_summary['wi_custom_count']} wells used their own custom WI from the table; {wells_summary['wi_default_count']} wells used the default {wi_pct} WI.")
                 if matrix_net_offer < 0:
                     st.warning("⚠️ **Financial Liability Alert**: The estimated P&A costs for the inactive wells exceed the projected revenue of the asset. A negative net offer implies that acquiring this property would require the seller to compensate Community Minerals to cover the impending abandonment liabilities.")
 

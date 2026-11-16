@@ -53,10 +53,11 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     omitted_count = 0
     df_clean = df.copy()
 
-    # 1. Rescatar la columna WI primero
+    # 1. Rescatar WI limpiando símbolos de porcentaje y espacios
     try:
         wi_col = _find(df_clean, "working interest", "wi", "wi decimal", "wi %")
-        df_clean["_wi_val"] = pd.to_numeric(df_clean[wi_col], errors="coerce")
+        wi_raw = df_clean[wi_col].astype(str).str.replace("%", "", regex=False).str.replace(",", "", regex=False)
+        df_clean["_wi_val"] = pd.to_numeric(wi_raw, errors="coerce")
     except ValueError:
         df_clean["_wi_val"] = np.nan
 
@@ -76,7 +77,7 @@ def summarize_wells(df: pd.DataFrame) -> dict:
 
         df_clean["API10"] = df_clean[api_col].map(_api10)
 
-        # 2. Compartir el WI entre los duplicados (STs) antes de borrar para no perder el dato
+        # 2. Compartir el WI entre los STs antes de borrar para no perder el dato
         df_clean["_wi_val"] = df_clean.groupby("API10")["_wi_val"].transform(lambda x: x.ffill().bfill())
 
         try:
@@ -113,17 +114,22 @@ def summarize_wells(df: pd.DataFrame) -> dict:
     try: raw_status = df_clean[_find(df_clean, "well status", "status")].astype(str).str.upper()
     except ValueError: raw_status = pd.Series(["UNKNOWN"] * len(df_clean))
     
-    try: tvd_col = pd.to_numeric(df_clean[_find(df_clean, "true vertical depth", "tvd")], errors="coerce")
-    except ValueError: tvd_col = pd.Series([np.nan] * len(df_clean))
-    
-    # Construimos el DataFrame usando el WI rescatado
+    # 3. BLINDAJE DE TVD: Quitar las comas (ej. "4,924") antes de pasarlo a número
+    try: 
+        t_col = _find(df_clean, "true vertical depth", "tvd")
+        tvd_raw = df_clean[t_col].astype(str).str.replace(",", "", regex=False).str.strip()
+        tvd_col = pd.to_numeric(tvd_raw, errors="coerce")
+    except ValueError: 
+        tvd_col = pd.Series([np.nan] * len(df_clean))
+
     d = pd.DataFrame({"ptype": ptype_col, "raw_status": raw_status, "tvd": tvd_col, "wi": df_clean["_wi_val"]})
 
+    # 4. BLINDAJE DE CLASIFICACIÓN (Capturar variaciones como "WATER" o "SWD/INJ")
     def _map_type(s):
         t = str(s).upper()
         if "DISPOSAL" in t or re.search(r"\bSWD\b", t): return "SWD"
-        if "INJ" in t: return "INJ"
-        if "OIL" in t: return "OIL"
+        if "INJ" in t or "WATER" in t: return "INJ"
+        if "OIL" in t or "PROD" in t: return "OIL"
         if "GAS" in t: return "GAS"
         return "OTHER"
 
@@ -132,9 +138,10 @@ def summarize_wells(df: pd.DataFrame) -> dict:
 
     def _map_status(s):
         t = re.sub(r"\s+", " ", str(s).upper().replace("_", " ")).strip()
-        if re.search(r"TEMP\w*\.?\s*ABAND|\bTA\b|INACTIVE|SHUT[\s-]?IN|\bSI\b|NON[\s-]?PRODUC|\bTEMP", t): return "INACTIVE"
+        if re.search(r"TEMP\w*\.?\s*ABAND|\bTA\b|INACT|SHUT[\s-]?IN|\bSI\b|NON[\s-]?PRODUC|\bTEMP", t): return "INACTIVE"
         if re.search(r"\bP\s*[&/]\s*A\b|\bPA\b|PLUGGED|ABANDON", t): return "PA"
-        if re.search(r"\bACTIVE\b|PRODUC|INJECT", t): return "ACTIVE"
+        # Incluye explícitamente "ACT" como límite de palabra por si DI lo exporta abreviado
+        if re.search(r"\bACT\b|\bACTIVE\b|PRODUC|INJECT", t): return "ACTIVE"
         return "OTHER"
 
     d["status"] = d["raw_status"].map(_map_status)
